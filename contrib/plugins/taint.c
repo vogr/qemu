@@ -12,13 +12,14 @@
 #include <glib.h>
 
 #include <unistd.h>
-#include <sys/un.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netdb.h>
 
 #include <qemu-plugin.h>
 
-#define HMP_SOCK_PATH "/tmp/qemu_hmp.sock"
+#define HMP_HOSTNAME "localhost"
+#define HMP_PORT "55555"
 
 /*
  * Taint tracking plugin.
@@ -47,20 +48,6 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 
 
     // Get register values from monitor
-
-    struct sockaddr_un hmp_addr = {
-        .sun_family = AF_UNIX,
-        .sun_path = HMP_SOCK_PATH,
-    };
-
-
-    if(connect(hmp_sock_fd, (struct sockaddr*)(&hmp_addr), sizeof(hmp_addr)) < 0)
-    {
-        perror("Unable to connect HMP socket");
-        exit(1);
-    }
-
-
     static char const hmp_dump_regs_cmd[] = "info registers\n";
 
 
@@ -88,7 +75,9 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 
     size_t cur_line_idx = 0;
 
-    while(true)
+
+    enum { BEFORE_PARSE, IS_PARSING, PARSING_DONE } parse_state = BEFORE_PARSE;
+    while(parse_state != PARSING_DONE)
     {
 
         while((cur_line_idx < cur_line_len) && cur_line[cur_line_idx] != '\n')
@@ -111,7 +100,7 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
         else
         {
             // found '\n', move additionnal data to next_line and process current line
-            next_line_len = cur_line_len - cur_line_idx;
+            next_line_len = cur_line_len - cur_line_idx - 1;
             char * remaining_char_ptr = cur_line + cur_line_idx + 1;
             memcpy(next_line, remaining_char_ptr, next_line_len * sizeof(char));
 
@@ -119,10 +108,28 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
             *remaining_char_ptr = '\0';
             cur_line_len = cur_line_idx;
 
+            if (parse_state == BEFORE_PARSE)
+            {
+                static const char first_line_prefix[] = " x0/zero";
+                if (strncmp(cur_line, first_line_prefix, sizeof(first_line_prefix) - 1) == 0)
+                {
+                    parse_state = IS_PARSING;
+                    // falloff to next stage, don't `continue`
+                }
+            }
 
-            // we have a line to process in cur_line
-            printf("(%zu) %s", cur_line_len, cur_line);
-            //PROCESS....
+            if (parse_state == IS_PARSING)
+            {
+                // we have a line to process in cur_line
+                printf("%s", cur_line);
+                //PROCESS....
+
+                static const char last_line_prefix[] = " f28/ft8";
+                if (strncmp(cur_line, last_line_prefix, sizeof(last_line_prefix) - 1) == 0)
+                {
+                    parse_state = PARSING_DONE;
+                }
+            }
 
 
             // next_line becomes current_line
@@ -137,15 +144,8 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
         }
 
     }
-
-
-    // free ressources
-    
-    if(close(hmp_sock_fd) < 0){
-        perror("Error closing HMP socket connection");
-        exit(1);
-    }
-    
+    free(next_line);
+    free(cur_line);
 }
 
 /*
@@ -178,14 +178,86 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     //qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     
-    if ((hmp_sock_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
-    {
-        perror("Unable to create HMP socket");
+ 
+    // IPv4/IPv6 TCP socket
+    struct addrinfo hints = {
+        .ai_family = AF_UNSPEC,
+        .ai_socktype = SOCK_STREAM
+    };
+
+    struct addrinfo * addr_candidates;
+    int ret = getaddrinfo(HMP_HOSTNAME, HMP_PORT, &hints, &addr_candidates);
+    if (ret != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
         exit(1);
     }
- 
+
+    fprintf(stderr, "Connecting to %s:%s\n", HMP_HOSTNAME, HMP_PORT);
+
+    struct addrinfo * addr;
+    for(addr = addr_candidates ; addr != NULL ; addr = addr->ai_next)
+    {
+
+        {
+            char host[NI_MAXHOST] = {0};
+            char service[NI_MAXSERV] = {0};
+            int ret = getnameinfo(addr->ai_addr, addr->ai_addrlen,
+                host, sizeof(host), service, sizeof(service), 0);
+            if (ret < 0)
+            {
+                fprintf(stderr, "Couldn't resolve candidate hostname.\n");
+            }
+            else
+            {
+                fprintf(stderr, "Candidate: %s:%s\n", host, service);
+            }
+        }
+
+
+        hmp_sock_fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+        if(hmp_sock_fd < 0)
+        {
+            perror("Failed to create socket for candidate address\n");
+            fprintf(stderr, "Trying next candidate.\n");
+            continue;
+        }
+        
+        if (connect(hmp_sock_fd, addr->ai_addr, addr->ai_addrlen) < 0)
+        {
+            perror("Failed to connect socket for candidate address");
+            fprintf(stderr, "Trying next candidate.\n");
+            continue;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    freeaddrinfo(addr_candidates);
+
+    if (addr == NULL)
+    {
+        fprintf(stderr, "Couldn't create valid socket for any of the candidates.\n");
+        exit(1);
+    }
+
 
 
 
     return 0;
 }
+
+
+
+#if 0
+
+// TODO: add plugin clos
+// free ressources
+
+if(close(hmp_sock_fd) < 0){
+    perror("Error closing HMP socket connection");
+    exit(1);
+}
+
+#endif
