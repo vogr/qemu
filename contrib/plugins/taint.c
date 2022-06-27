@@ -344,6 +344,24 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 }
 
 
+struct InsnData
+{
+    char * disas;
+    unsigned char * opcode;
+    size_t opcode_size;
+};
+
+static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
+{
+    struct InsnData * ins_data = (struct InsnData*)userdata;
+    
+    printf("(");
+    for(int i = 0 ; i < ins_data->opcode_size ; i++)
+    {
+        printf("%x ", ins_data->opcode[i]);
+    }
+    printf(") %s\n", ins_data->disas);
+}
 
 
 /*
@@ -359,13 +377,30 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
     {
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
 
-        void *data = NULL;
+        void * data_mem = NULL;
+        /*
         qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem_access,
                                          QEMU_PLUGIN_CB_NO_REGS,
-                                         QEMU_PLUGIN_MEM_RW, data);
+                                         QEMU_PLUGIN_MEM_RW, data_mem);
+        */
 
-        // qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
-        //                                 QEMU_PLUGIN_CB_NO_REGS, data);
+
+        void const * opcode_ptr = qemu_plugin_insn_data(insn);
+        size_t opcode_size = qemu_plugin_insn_size(insn);
+
+        // FIXME: use g_hash_table and/or g_new (refcount) to keep track
+        // of allocated memory.
+        struct InsnData * ins_data = malloc(sizeof(struct InsnData));
+
+        // disas: allocated string
+        ins_data->disas = qemu_plugin_insn_disas(insn);
+        ins_data->opcode = malloc(opcode_size);
+        ins_data->opcode_size = opcode_size;
+
+        memcpy(ins_data->opcode, opcode_ptr, opcode_size);
+
+        qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
+                                         QEMU_PLUGIN_CB_NO_REGS, (void*)ins_data);
     }
 }
 
