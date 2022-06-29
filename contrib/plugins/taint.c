@@ -15,14 +15,13 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netdb.h>
+#include <sys/un.h>
 
 #include <glib.h>
 
 #include <qemu-plugin.h>
 
-#define HMP_HOSTNAME "localhost"
-#define HMP_PORT "55555"
+#define HMP_UNIX_SOCKET "/tmp/qemu_hmp.sock"
 
 /*
  * Taint tracking plugin.
@@ -378,11 +377,11 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
 
         void * data_mem = NULL;
-        /*
+
         qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem_access,
                                          QEMU_PLUGIN_CB_NO_REGS,
                                          QEMU_PLUGIN_MEM_RW, data_mem);
-        */
+
 
 
         void const * opcode_ptr = qemu_plugin_insn_data(insn);
@@ -424,71 +423,25 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     
- 
-    // IPv4/IPv6 TCP socket
-    struct addrinfo hints = {
-        .ai_family = AF_UNSPEC,
-        .ai_socktype = SOCK_STREAM
+    fprintf(stderr, "Connecting to monitor on unix socket: %s\n", HMP_UNIX_SOCKET);
+
+    hmp_sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if(hmp_sock_fd < 0)
+    {
+        perror("Failed to create socket\n");
+        exit(1);
+    }
+
+    struct sockaddr_un sock_name = {
+        .sun_family = AF_UNIX,
+        .sun_path = HMP_UNIX_SOCKET
     };
 
-    struct addrinfo * addr_candidates;
-    int ret = getaddrinfo(HMP_HOSTNAME, HMP_PORT, &hints, &addr_candidates);
-    if (ret != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
+    if (connect(hmp_sock_fd, (struct sockaddr *)&sock_name, sizeof(sock_name)) < 0)
+    {
+        perror("Failed to connect the socket");
         exit(1);
     }
-
-    fprintf(stderr, "Connecting to %s:%s\n", HMP_HOSTNAME, HMP_PORT);
-
-    struct addrinfo * addr;
-    for(addr = addr_candidates ; addr != NULL ; addr = addr->ai_next)
-    {
-
-        {
-            char host[NI_MAXHOST] = {0};
-            char service[NI_MAXSERV] = {0};
-            int ret = getnameinfo(addr->ai_addr, addr->ai_addrlen,
-                host, sizeof(host), service, sizeof(service), 0);
-            if (ret < 0)
-            {
-                fprintf(stderr, "Couldn't resolve candidate hostname.\n");
-            }
-            else
-            {
-                fprintf(stderr, "Candidate: %s:%s\n", host, service);
-            }
-        }
-
-
-        hmp_sock_fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-        if(hmp_sock_fd < 0)
-        {
-            perror("Failed to create socket for candidate address\n");
-            fprintf(stderr, "Trying next candidate.\n");
-            continue;
-        }
-        
-        if (connect(hmp_sock_fd, addr->ai_addr, addr->ai_addrlen) < 0)
-        {
-            perror("Failed to connect socket for candidate address");
-            fprintf(stderr, "Trying next candidate.\n");
-            continue;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    freeaddrinfo(addr_candidates);
-
-    if (addr == NULL)
-    {
-        fprintf(stderr, "Couldn't create valid socket for any of the candidates.\n");
-        exit(1);
-    }
-
-
 
 
     return 0;
