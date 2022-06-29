@@ -36,9 +36,12 @@ static int hmp_sock_fd = -1;
 
 
 
-//FIXME: move memory allocation out of callback, into init. 
-// + cleanup in plugin close
 enum parse_state_t { PARSING_BEFORE, PARSING_COPYING, PARSING_LAST_COPY, PARSING_DONE };
+
+#define GET_REGS_MAX_LINE_LEN 2047
+static char get_regs_buf0[GET_REGS_MAX_LINE_LEN + 1] = {0};
+static char get_regs_buf1[GET_REGS_MAX_LINE_LEN + 1] = {0};
+
 static void get_regs_repr(size_t all_regs_repr_max_len, char * all_regs_repr)
 {
     // Get register values from monitor
@@ -59,17 +62,12 @@ static void get_regs_repr(size_t all_regs_repr_max_len, char * all_regs_repr)
     // 2. read reply
 
     // Allocate two buffers for reading, we will swap between the two as we recv
-    // called "line" but not line-based, delimiter is first_line_prefix
-    size_t const max_line_len = 2047;
-    
+    // called "line" but not line-based, delimiter is first_line_prefix    
     size_t cur_line_len = 0;
-    char * cur_line = malloc((max_line_len + 1) * sizeof(char));
-    memset(cur_line, 0, max_line_len + 1);
-
+    char * cur_line = get_regs_buf0;
 
     size_t next_line_len = 0;
-    char * next_line = malloc((max_line_len + 1) * sizeof(char));
-    memset(next_line, 0, max_line_len + 1);
+    char * next_line = get_regs_buf1;
 
     // Position of the parser head in the current line or in all_regs_repr
     size_t parser_head = 0;
@@ -121,7 +119,7 @@ static void get_regs_repr(size_t all_regs_repr_max_len, char * all_regs_repr)
                 // need at least flp_s bytes
                 while(cur_line_len < flp_s)
                 {
-                    ssize_t n_recv = recv(hmp_sock_fd, cur_line + cur_line_len, max_line_len - cur_line_len, 0);
+                    ssize_t n_recv = recv(hmp_sock_fd, cur_line + cur_line_len, GET_REGS_MAX_LINE_LEN - cur_line_len, 0);
 
                     if(n_recv < 0)
                     {
@@ -184,8 +182,6 @@ static void get_regs_repr(size_t all_regs_repr_max_len, char * all_regs_repr)
             }
         }
     }
-    free(next_line);
-    free(cur_line);
 }
 
 
@@ -282,10 +278,13 @@ static char const * parse_reg_repr(char const * regs_repr, uint32_t * regs)
 
 
 
+#define ALL_REGS_STRING_MAX_LEN 4095
 
 static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
                             uint64_t vaddr, void *userdata)
 {
+    static char all_regs_string[ALL_REGS_STRING_MAX_LEN + 1] = {0};
+
     struct qemu_plugin_hwaddr *hwaddr  = qemu_plugin_get_hwaddr(info, vaddr);
     g_assert(hwaddr != NULL);
 
@@ -308,13 +307,7 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
      *    and return. Another thread picks up buffer and processes.
      */ 
 
-
-    // make new region to pass it to another thread
-    size_t const all_regs_string_max_len = 4095; //FIXME: what is the max size?
-    char * all_regs_string = malloc((all_regs_string_max_len + 1) * sizeof(char));
-    memset(all_regs_string, 0, all_regs_string_max_len + 1);
-
-    get_regs_repr(all_regs_string_max_len, all_regs_string);
+    get_regs_repr(ALL_REGS_STRING_MAX_LEN, all_regs_string);
 
 
     // Parse the integer and fp registers (as uint32)
