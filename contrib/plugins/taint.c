@@ -23,6 +23,8 @@
 
 #define HMP_UNIX_SOCKET "/tmp/qemu_hmp.sock"
 
+
+
 /*
  * Taint tracking plugin.
  *
@@ -32,7 +34,29 @@
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 static int hmp_sock_fd = -1;
- 
+
+#define BASE_PHYS_ADDR 0x80000000
+
+/*
+ * Taint related storage and macros
+ * specific to the target machine (QEMU virt)
+ */
+
+
+// Shadow memory. Bit level taint, so as large as the memory of the machine.
+#define PHYS_MEM_SIZE (1 << 27) // 128MiB
+static uint8_t shadow_mem[PHYS_MEM_SIZE] = {0};
+
+// Shadow registers. 32 integer registers, 64b per register.
+// NOTE: x0 cannot be tainted as it is the hardwired 0 value.  
+static uint64_t shadow_regs[32] = {0};
+
+// Map compressed representation r' (3 bits) to full register repr (5 bits)
+// see https://en.wikichip.org/wiki/risc-v/registers
+#define REG_OF_COMPRESSED(x) (x + 8)
+
+
+
 
 
 
@@ -41,6 +65,9 @@ enum parse_state_t { PARSING_BEFORE, PARSING_COPYING, PARSING_LAST_COPY, PARSING
 #define GET_REGS_MAX_LINE_LEN 2047
 static char get_regs_buf0[GET_REGS_MAX_LINE_LEN + 1] = {0};
 static char get_regs_buf1[GET_REGS_MAX_LINE_LEN + 1] = {0};
+
+#define ALL_REGS_STRING_MAX_LEN 4095
+static char all_regs_string[ALL_REGS_STRING_MAX_LEN + 1] = {0};
 
 static void get_regs_repr(size_t all_regs_repr_max_len, char * all_regs_repr)
 {
@@ -278,12 +305,113 @@ static char const * parse_reg_repr(char const * regs_repr, uint32_t * regs)
 
 
 
-#define ALL_REGS_STRING_MAX_LEN 4095
+#define INSTR32_FUNCT3_MASK (0b111 << 12)
+#define INSTR32_FUNCT7_MASK (0b1111111 << 25)
+
+#define INSTR32_OP_F3F7_ADD  ((0b000 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_SUB  ((0b000 << 12) | (0b0100000 << 25))
+#define INSTR32_OP_F3F7_SLL  ((0b001 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_SLT  ((0b010 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_SLTU ((0b011 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_XOR  ((0b100 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_SRL  ((0b101 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_SRA  ((0b101 << 12) | (0b0100000 << 25))
+#define INSTR32_OP_F3F7_OR   ((0b110 << 12) | (0b0000000 << 25))
+#define INSTR32_OP_F3F7_AND  ((0b111 << 12) | (0b0000000 << 25))
+
+static and_count = 0;
+static void propagate_taint32_op(uint32_t instr)
+{
+    uint32_t f7_f3 = instr & (INSTR32_FUNCT3_MASK | INSTR32_FUNCT7_MASK);
+    switch (f7_f3)
+    {
+        case INSTR32_OP_F3F7_AND:
+        {
+            get_regs_repr(ALL_REGS_STRING_MAX_LEN, all_regs_string);
+            
+            printf("and_count=%d\n", and_count);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+
+
+static void propagate_taint32(uint32_t instr)
+{
+    // the lsb are 0b11 for all 32b instructions
+    uint8_t opcode_lo = instr & 0b11;
+    assert(opcode_lo = 0b11);
+
+    // the opcode 
+    uint8_t opcode_hi = (instr >> 2) & 0b11111;
+    switch (opcode_hi)
+    {
+    case 0b01100:
+        propagate_taint32_op(instr);
+        break;
+    
+    default:
+        break;
+    }
+}
+
+
+#define INSTR16_OP_MASK (0b11)
+#define INSTR16_FUNCT6_MASK (0b111111 << 10)
+#define INSTR16_FUNCT2_MASK (0b11 << 5)
+
+#define INSTR16_OPF2F6_CAND ((0b01) | (0b11 << 5) | (0b100011 << 10))
+
+static void propagate_taint16(uint32_t instr)
+{
+    // the lsb is NOT 0b11 for all 16b instructions
+    uint8_t opcode_lo = instr & 0b11;
+    assert(opcode_lo != 0b11);
+
+    uint16_t f6_f2_op = instr & (INSTR16_FUNCT6_MASK | INSTR16_FUNCT2_MASK | INSTR16_OP_MASK);
+    switch (f6_f2_op)
+    {
+        case INSTR16_OPF2F6_CAND:
+        {
+            and_count++;
+            break;
+        }
+        default:
+        {
+            break;
+        }
+    }
+}
+
+
+static void propagate_taint(size_t instr_size, uint32_t instr)
+{
+    switch (instr_size)
+    {
+        case 16:
+            propagate_taint16(instr);
+            break;
+        case 32:
+            propagate_taint32(instr);
+            break;
+        default:
+            fprintf(stderr, "ERROR: Unexpected instruction size: %zu\n", instr_size);
+            exit(1);
+            break;
+    }
+}
+
+
+
+
+
 
 static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
                             uint64_t vaddr, void *userdata)
 {
-    static char all_regs_string[ALL_REGS_STRING_MAX_LEN + 1] = {0};
 
     struct qemu_plugin_hwaddr *hwaddr  = qemu_plugin_get_hwaddr(info, vaddr);
     g_assert(hwaddr != NULL);
@@ -295,7 +423,7 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 
     uint64_t phys_addr = qemu_plugin_hwaddr_phys_addr(hwaddr);
 
-    printf("Memory access at vaddr %" PRIx64 ", physaddr %" PRIx64 "\n", vaddr, phys_addr);
+    //printf("Memory access at vaddr %" PRIx64 ", physaddr %" PRIx64 "\n", vaddr, phys_addr);
 
 
     /*
@@ -307,52 +435,26 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
      *    and return. Another thread picks up buffer and processes.
      */ 
 
-    get_regs_repr(ALL_REGS_STRING_MAX_LEN, all_regs_string);
+    //get_regs_repr(ALL_REGS_STRING_MAX_LEN, all_regs_string);
 
 
     // Parse the integer and fp registers (as uint32)
-
-    uint32_t xreg[32] = {0};
-    uint32_t freg[32] = {0};
-
-    char const * x_regs_repr_start = all_regs_string;
-    char const * fp_regs_repr_start = parse_reg_repr(x_regs_repr_start, xreg);
-    char const * parsed_block_end = parse_reg_repr(fp_regs_repr_start, freg);
-
-    for(int reg = 0 ; reg < 32 ; reg++)
-    {
-        printf("x%d=%" PRIx32 "  ", reg, xreg[reg]);
-        if (reg % 4 == 3) printf("\n");
-    }
-
-
-    for(int reg = 0 ; reg < 32 ; reg++)
-    {
-        printf("f%d=%" PRIx32 "  ", reg, freg[reg]);
-        if (reg % 4 == 3) printf("\n");
-    }
-
-
 }
 
 
+// Instr sizes are just 16 or 32, use a uint32 for both 
 struct InsnData
 {
-    char * disas;
-    unsigned char * opcode;
-    size_t opcode_size;
+    char * disas; //FIXME: remove when no longer needed for debug!
+    size_t instr_size;
+    uint32_t instr;
 };
 
 static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
 {
     struct InsnData * ins_data = (struct InsnData*)userdata;
-    
-    printf("(");
-    for(int i = 0 ; i < ins_data->opcode_size ; i++)
-    {
-        printf("%x ", ins_data->opcode[i]);
-    }
-    printf(") %s\n", ins_data->disas);
+    //printf("(%x) %s\n", ins_data->instr, ins_data->disas);
+    propagate_taint(ins_data->instr_size, ins_data->instr);
 }
 
 
@@ -377,19 +479,42 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
 
 
-        void const * opcode_ptr = qemu_plugin_insn_data(insn);
-        size_t opcode_size = qemu_plugin_insn_size(insn);
+        void const * instr_ptr = qemu_plugin_insn_data(insn);
+        
+        // instruction size in bits
+        size_t instr_size = 8 * qemu_plugin_insn_size(insn);
 
         // FIXME: use g_hash_table and/or g_new (refcount) to keep track
         // of allocated memory.
+        
+        // Trainling  array 
         struct InsnData * ins_data = malloc(sizeof(struct InsnData));
 
         // disas: allocated string
         ins_data->disas = qemu_plugin_insn_disas(insn);
-        ins_data->opcode = malloc(opcode_size);
-        ins_data->opcode_size = opcode_size;
-
-        memcpy(ins_data->opcode, opcode_ptr, opcode_size);
+        ins_data->instr_size = instr_size;
+        
+        switch (instr_size)
+        {
+            case 16:
+            {
+                uint16_t * ins16_ptr = (uint16_t*)instr_ptr;
+                ins_data->instr = *ins16_ptr;
+                break;
+            }
+            case 32:
+            {
+                uint32_t * ins32_ptr = (uint32_t*)instr_ptr;
+                ins_data->instr = *ins32_ptr;
+                break;
+            }
+            default:
+            {
+                fprintf(stderr, "ERROR: Unexpected instruction size: %zu\n", instr_size);
+                exit(1);
+                break;
+            }
+        }
 
         qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
                                          QEMU_PLUGIN_CB_NO_REGS, (void*)ins_data);
@@ -406,6 +531,8 @@ static void plugin_exit(qemu_plugin_id_t id, void *p)
         perror("Error closing HMP socket connection");
         exit(1);
     }
+
+    printf("and_count: %d", and_count);
 }
 
 
