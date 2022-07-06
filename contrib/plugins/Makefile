@@ -42,7 +42,7 @@ lib%.so: %.o
 	$(CC) -shared -Wl,-soname,$@ -o $@ $^ $(LDLIBS)
 
 
-libtaint.so: taint/taint.o taint/regs.o taint/propagate.o taint/hmp.o
+libtaint.so: taint/taint.o taint/regs.o taint/propagate.o taint/hmp.o taint/params.o
 
 clean:
 	rm -f *.o *.so *.d

@@ -7,11 +7,14 @@
 
 #include <stdio.h>
 
+#include <sys/mman.h>
+
 #include <glib.h>
 
 #include <qemu-plugin.h>
 
 #include "hmp.h"
+#include "params.h"
 #include "propagate.h"
 
 #define HMP_UNIX_SOCKET "/tmp/qemu_hmp.sock"
@@ -163,6 +166,11 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     fprintf(stderr, "Connecting to monitor on unix socket: %s\n", HMP_UNIX_SOCKET);
 
     open_hmp_socket(HMP_UNIX_SOCKET);
+
+    // allocate memory for the shadow memory
+    // noreserve: only allocate a page when we write a taint value
+    // FIXME: one bit per location, should extend to set of labels.
+    shadow_mem = mmap(NULL, PHYS_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
 
     return 0;
 }

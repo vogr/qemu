@@ -12,15 +12,6 @@
 
 
 
-// Shadow memory, 0-initialized
-uint8_t shadow_mem[PHYS_MEM_SIZE] = {0};
-
-// Shadow registers. 32 integer registers, 64b per register.
-// NOTE: x0 cannot be tainted as it is the hardwired 0 value.
-// 0 initialized
-uint64_t shadow_regs[32] = {0};
-
-
 // Map compressed representation r' (3 bits) to full register repr (5 bits)
 // see https://en.wikichip.org/wiki/risc-v/registers
 #define REG_OF_COMPRESSED(x) ((uint8_t)x + 8)
