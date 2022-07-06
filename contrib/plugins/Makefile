@@ -41,8 +41,12 @@ all: $(SONAMES)
 lib%.so: %.o
 	$(CC) -shared -Wl,-soname,$@ -o $@ $^ $(LDLIBS)
 
+
+libtaint.so: taint/taint.o taint/regs.o taint/propagate.o taint/hmp.o
+
 clean:
 	rm -f *.o *.so *.d
+	rm -f taint/*.o
 	rm -Rf .libs
 
 .PHONY: all clean
