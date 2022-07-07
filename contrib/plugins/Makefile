@@ -21,6 +21,7 @@ NAMES += lockstep
 NAMES += hwprofile
 NAMES += cache
 NAMES += drcov
+NAMES += taint
 
 SONAMES := $(addsuffix .so,$(addprefix lib,$(NAMES)))
 
@@ -42,7 +43,16 @@ lib%.so: %.o
 	$(CC) -shared -Wl,-soname,$@ -o $@ $^ $(LDLIBS)
 
 
-libtaint.so: taint/taint.o taint/regs.o taint/propagate.o taint/hmp.o taint/params.o
+TAINT_BUILD_DIR := $(CURDIR)/taint
+TAINT_OBJS := taint/taint.o taint/regs.o taint/propagate.o taint/hmp.o taint/params.o
+
+$(TAINT_BUILD_DIR):
+	mkdir $(TAINT_BUILD_DIR)
+
+$(TAINT_OBJS): | $(TAINT_BUILD_DIR)
+
+libtaint.so: $(TAINT_OBJS)
+	$(CC) -shared -Wl,-soname,$@ -o $@ $^ $(LDLIBS)
 
 clean:
 	rm -f *.o *.so *.d
