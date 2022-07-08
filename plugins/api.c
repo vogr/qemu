@@ -385,6 +385,58 @@ int qemu_plugin_n_max_vcpus(void)
 #endif
 }
 
+
+/*
+ * CPUState and CPUArchState queries
+ */
+
+
+qemu_cpu_state qemu_plugin_get_cpu(int vcpu_idx)
+{
+    return qemu_get_cpu(vcpu_idx);
+}
+
+
+void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values)
+{
+#if TARGET_RISCV
+    RISCVCPU *rvcpu = RISCV_CPU(pcs);
+    CPURISCVState *env = &rvcpu->env;
+
+    target_ulong * regs = env->gpr;
+    target_ulong * dest = (target_ulong*)values;
+
+    for(size_t i = 0 ; i < n_registers ; i++)
+    {
+        int regid = register_ids[i];
+        dest[i] = regs[regid];
+    }
+
+#else
+    g_assert_not_reached();
+#endif
+}
+
+/*
+ * qemu_plugin_get_hwaddr is more efficient and provides more information,
+ * however, it must be issued immediatly after the corresponding TLB query
+ * (ie after the instruction)
+ */
+
+uint64_t qemu_plugin_translate_vaddr(qemu_cpu_state pcs, uint64_t pvaddr)
+{
+#ifndef CONFIG_USER_ONLY
+    CPUState * cs = CPU(pcs);
+    target_ulong va = (target_ulong)pvaddr;
+    hwaddr page_paddr = cpu_get_phys_page_debug(cs, va);
+    hwaddr phys_addr = page_paddr | (va & (TARGET_PAGE_SIZE - 1));
+    return phys_addr;
+#else
+    return 0;
+#endif
+}
+
+
 /*
  * Plugin output
  */

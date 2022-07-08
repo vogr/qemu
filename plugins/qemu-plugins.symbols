@@ -2,7 +2,9 @@
   qemu_plugin_bool_parse;
   qemu_plugin_end_code;
   qemu_plugin_entry_code;
+  qemu_plugin_get_cpu;
   qemu_plugin_get_hwaddr;
+  qemu_plugin_get_register_values;
   qemu_plugin_hwaddr_device_name;
   qemu_plugin_hwaddr_is_io;
   qemu_plugin_hwaddr_phys_addr;
@@ -40,6 +42,7 @@
   qemu_plugin_tb_get_insn;
   qemu_plugin_tb_n_insns;
   qemu_plugin_tb_vaddr;
+  qemu_plugin_translate_vaddr;
   qemu_plugin_uninstall;
   qemu_plugin_vcpu_for_each;
 };

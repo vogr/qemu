@@ -572,6 +572,36 @@ int qemu_plugin_n_vcpus(void);
 /* returns -1 in user-mode */
 int qemu_plugin_n_max_vcpus(void);
 
+/* opaque handler for CPUState */
+
+typedef void* qemu_cpu_state;
+
+/**
+ * qemu_plugin_outs() - get abtract handle to the CPUState
+ * @vcpu_idx: index of the cpu, as passed to the callbacks 
+ */
+qemu_cpu_state qemu_plugin_get_cpu(int vcpu_idx);
+
+/**
+ * qemu_plugin_get_register_values() - query register values
+ * The caller needs to provide a sufficiently large values[] buffer.
+ * 
+ * @pcs: cpu state handle, as provided by qemu_plugin_get_cpu()
+ * @n_registers: number of queried register values
+ * @register_ids: n_registers ids of register to query
+ * @values: caller provided output buffer
+ */
+void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values);
+
+/**
+ * qemu_plugin_translate_vaddr() - translate vaddr to physaddr
+ *
+ * @pcs: cpu state handle, as provided by qemu_plugin_get_cpu()
+ * @pvaddr: virtual address to translate
+ */
+uint64_t qemu_plugin_translate_vaddr(qemu_cpu_state pcs, uint64_t pvaddr);
+
+
 /**
  * qemu_plugin_outs() - output string via QEMU's logging system
  * @string: a string
