@@ -13,3 +13,6 @@ struct src_regs_values
 
 uint64_t get_one_reg_value(char r);
 struct src_regs_values get_src_reg_values(char rs1, char rs2);
+
+uint64_t get_one_reg_value_qemu(unsigned int vcpu_idx, char r);
+struct src_regs_values get_src_reg_values_qemu(unsigned int vcpu_idx, char rs1, char rs2);

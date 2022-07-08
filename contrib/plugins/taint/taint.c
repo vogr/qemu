@@ -45,7 +45,10 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 
     uint64_t phys_addr = qemu_plugin_hwaddr_phys_addr(hwaddr);
 
-    //printf("Memory access at vaddr %" PRIx64 ", physaddr %" PRIx64 "\n", vaddr, phys_addr);
+    qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_index);
+    uint64_t paddr_cs  = qemu_plugin_translate_vaddr(cs, vaddr);
+
+    printf("Memory access at vaddr %" PRIx64 ", paddr_mon %" PRIx64 " paddr_cs %" PRIx64 "\n", vaddr, phys_addr, paddr_cs);
 
 
     /*
@@ -76,7 +79,7 @@ static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
 {
     struct InsnData * ins_data = (struct InsnData*)userdata;
     //printf("(%x) %s\n", ins_data->instr, ins_data->disas);
-    propagate_taint(ins_data->instr_size, ins_data->instr);
+    propagate_taint(vcpu_index, ins_data->instr_size, ins_data->instr);
 }
 
 

@@ -1,6 +1,6 @@
 #pragma once
 
-
+#include <stdint.h>
 
 #define MASK(N) ((((uint64_t)1) << N) - 1)
 
@@ -42,9 +42,9 @@
 #define INSTR32_FUNCT3_MASK (MASK(3) << 12)
 #define INSTR32_FUNCT7_MASK (MASK(7) << 25)
 
-#define INSTR32_RD_GET(instr)  (char)((instr >> 7)  & MASK(5))
-#define INSTR32_RS1_GET(instr) (char)((instr >> 15) & MASK(5))
-#define INSTR32_RS2_GET(instr) (char)((instr >> 20) & MASK(5))
+#define INSTR32_RD_GET(instr)  (uint8_t)((instr >> 7)  & MASK(5))
+#define INSTR32_RS1_GET(instr) (uint8_t)((instr >> 15) & MASK(5))
+#define INSTR32_RS2_GET(instr) (uint8_t)((instr >> 20) & MASK(5))
 
 #define INSTR32_I_IMM_0_11_GET(instr) ((instr >>  20) & MASK(12))
 #define INSTR32_S_IMM_0_4_GET(instr)  ((instr >>  7)  & MASK(5))

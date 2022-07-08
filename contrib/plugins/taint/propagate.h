@@ -7,4 +7,4 @@
  * Implemented in C++, expose through a C API.
  */
 
-void propagate_taint(uint32_t instr_size, uint32_t instr);
+void propagate_taint(unsigned int vcpu_idx, uint32_t instr_size, uint32_t instr);

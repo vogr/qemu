@@ -1,5 +1,7 @@
 #include "propagate.h"
 
+#include <qemu-plugin.h>
+
 
 #include <assert.h>
 #include <inttypes.h>
@@ -27,17 +29,18 @@
 /***
  * Loads
  * 
- * FIXME: hooking load instr is necessary to look at register taint
- *        should we also hook MEM_READ/MEM_WRITE?
+ * FIXME: In the load instr we have access to the virt address, but the
+ *        virt->phys translation can only be done 
  ***/
 
-static void propagate_taint_load(uint32_t instr)
+static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 {
     uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
 
-    char rd = INSTR32_RD_GET(instr);
-    char rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
+
 }
 
 
@@ -45,18 +48,15 @@ static void propagate_taint_load(uint32_t instr)
  * Stores
  ***/
 
-static void propagate_taint_store(uint32_t instr)
+static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
 {
     uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
 
-    char rs1 = INSTR32_RS1_GET(instr);
-    char rs2 = INSTR32_RS2_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
 
     uint16_t imm = INSTR32_S_IMM_0_11_GET(instr);
-
-
-
-
+    
 }
 
 
@@ -64,7 +64,7 @@ static void propagate_taint_store(uint32_t instr)
  * Boolean and arithmetic operations
  **/
 
-static void propagate_taint_op__lazy(char rd, char rs1, char rs2)
+static void propagate_taint_op__lazy(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * "Lazy" as defined in Valgrind's memcheck:
@@ -87,7 +87,7 @@ static void propagate_taint_op__lazy(char rd, char rs1, char rs2)
     uint64_t t2 = shadow_regs[rs2];
 
     // if any bit tainted in any of the operands, the output is completely tainted
-    char is_out_tainted = t1 || t2;
+    uint8_t is_out_tainted = t1 || t2;
 
     uint64_t tout = is_out_tainted ? -1 : 0;
 
@@ -99,21 +99,21 @@ static void propagate_taint_op__lazy(char rd, char rs1, char rs2)
 //     of the first tainted carry.
 //   - better: carry-by-carry taint propagation
 
-static void propagate_taint_ADD(char rd, char rs1, char rs2)
+static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     // FIXME: proper add handling!
-    propagate_taint_op__lazy(rd, rs1, rs2);
+    propagate_taint_op__lazy(vcpu_idx, rd, rs1, rs2);
 }
 
-static void propagate_taint_SUB(char rd, char rs1, char rs2)
+static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     // FIXME: proper sub handling!
-    propagate_taint_op__lazy(rd, rs1, rs2);
+    propagate_taint_op__lazy(vcpu_idx, rd, rs1, rs2);
 }
 
 // AND and OR
 
-static void propagate_taint_AND(char rd, char rs1, char rs2)
+static void propagate_taint_AND(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /* Rule from DECAF (tcg_taint.c)
 
@@ -141,7 +141,7 @@ static void propagate_taint_AND(char rd, char rs1, char rs2)
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_ANDI(char rd, char rs1, uint16_t imm)
+static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
@@ -158,7 +158,7 @@ static void propagate_taint_ANDI(char rd, char rs1, uint16_t imm)
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_OR(char rd, char rs1, char rs2)
+static void propagate_taint_OR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /* Rule from DECAF (tcg_taint.c)
 
@@ -188,7 +188,7 @@ static void propagate_taint_OR(char rd, char rs1, char rs2)
 }
 
 
-static void propagate_taint_ORI(char rd, char rs1, uint16_t imm)
+static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
@@ -208,7 +208,7 @@ static void propagate_taint_ORI(char rd, char rs1, uint16_t imm)
 
 // XOR
 
-static void propagate_taint_XOR(char rd, char rs1, char rs2)
+static void propagate_taint_XOR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * XOR: union of the taints.
@@ -233,7 +233,7 @@ static void propagate_taint_XOR(char rd, char rs1, char rs2)
 }
 
 
-static void propagate_taint_XORI(char rd, char rs1, uint16_t imm)
+static void propagate_taint_XORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     /*
      * XOR: union of the taints.
@@ -246,7 +246,7 @@ static void propagate_taint_XORI(char rd, char rs1, uint16_t imm)
 
 // SLL, SRL, SRA
 
-static void propagate_taint_SLL(char rd, char rs1, char rs2)
+static void propagate_taint_SLL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * Shift left
@@ -277,7 +277,7 @@ static void propagate_taint_SLL(char rd, char rs1, char rs2)
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_SRL(char rd, char rs1, char rs2)
+static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * Shift right
@@ -308,7 +308,7 @@ static void propagate_taint_SRL(char rd, char rs1, char rs2)
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_SRA(char rd, char rs1, char rs2)
+static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * Arithmetic right shift
@@ -382,15 +382,15 @@ static uint64_t taint_result__sltu(uint64_t v1, uint64_t v2, uint64_t t1, uint64
     uint64_t v1_with_zeros =  v1 & (~t1);
     uint64_t v2_with_zeros =  v2 & (~t2);
 
-    char stable_compare1 = v1_with_ones < v2_with_zeros;
-    char stable_compare2 = v1_with_zeros >= v2_with_ones;
+    uint8_t stable_compare1 = v1_with_ones < v2_with_zeros;
+    uint8_t stable_compare2 = v1_with_zeros >= v2_with_ones;
 
-    char stable_compare = stable_compare1 | stable_compare2;
+    uint8_t stable_compare = stable_compare1 | stable_compare2;
 
     return (! stable_compare);
 }
 
-static void propagate_taint_SLTU(char rd, char rs1, char rs2)
+static void propagate_taint_SLTU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -399,7 +399,7 @@ static void propagate_taint_SLTU(char rd, char rs1, char rs2)
     shadow_regs[rd] = taint_result__sltu(vals.v1, vals.v2, t1, t2);
 }
 
-static void propagate_taint_SLTUI(char rd, char rs1, uint16_t imm)
+static void propagate_taint_SLTUI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
@@ -429,16 +429,16 @@ static uint64_t taint_result__slt(uint64_t v1, uint64_t v2, uint64_t t1, uint64_
     int64_t v1_min = (v1_with_ones & (~MASK(63))) | (v1_with_zeros & MASK(63));
     int64_t v2_min = (v2_with_ones & (~MASK(63))) | (v2_with_zeros & MASK(63));
 
-    char stable_compare1 = v1_max < v2_min;
-    char stable_compare2 = v1_min >= v2_max;
+    uint8_t stable_compare1 = v1_max < v2_min;
+    uint8_t stable_compare2 = v1_min >= v2_max;
 
-    char stable_compare = stable_compare1 | stable_compare2;
+    uint8_t stable_compare = stable_compare1 | stable_compare2;
 
     return (! stable_compare);
 
 }
 
-static void propagate_taint_SLT(char rd, char rs1, char rs2)
+static void propagate_taint_SLT(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -447,7 +447,7 @@ static void propagate_taint_SLT(char rd, char rs1, char rs2)
     shadow_regs[rd] = taint_result__slt(vals.v1, vals.v2, t1, t2);
 }
 
-static void propagate_taint_SLTI(char rd, char rs1, uint16_t imm)
+static void propagate_taint_SLTI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
@@ -459,12 +459,12 @@ static void propagate_taint_SLTI(char rd, char rs1, uint16_t imm)
 }
 
 
-static void propagate_taint32__reg_imm_op(uint32_t instr)
+static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
 {
     uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
 
-    char rd = INSTR32_RD_GET(instr);
-    char rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
 
     if (rd == 0)
@@ -477,13 +477,18 @@ static void propagate_taint32__reg_imm_op(uint32_t instr)
 
 
 
-static void propagate_taint32__reg_reg_op(uint32_t instr)
+static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
 {
     uint32_t f7_f3 = instr & (INSTR32_FUNCT3_MASK | INSTR32_FUNCT7_MASK);
 
-    char rd = INSTR32_RD_GET(instr);
-    char rs1 = INSTR32_RS1_GET(instr);
-    char rs2 = INSTR32_RS2_GET(instr);
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
+
+    struct src_regs_values vmon = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vqemu = get_src_reg_values_qemu(vcpu_idx, rs1, rs2);
+    printf("%" PRIx32 "MON op(%" PRIx64 ", %" PRIx64 ")\n", instr, vmon.v1, vmon.v2);
+    printf("%" PRIx32 "REG op(%" PRIx64 ", %" PRIx64 ")\n", instr, vqemu.v1, vqemu.v2);
 
     if (rd == 0)
     {
@@ -495,52 +500,52 @@ static void propagate_taint32__reg_reg_op(uint32_t instr)
     {
     case INSTR32_F3F7_ADD:
     {
-        propagate_taint_ADD(rd, rs1, rs2);
+        propagate_taint_ADD(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_SUB:
     {
-        propagate_taint_SUB(rd, rs1, rs2);
+        propagate_taint_SUB(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_SLL:
     {
-        propagate_taint_SLL(rd, rs1, rs2);
+        propagate_taint_SLL(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_SLT:
     {
-        propagate_taint_SLT(rd, rs1, rs2);
+        propagate_taint_SLT(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_SLTU:
     {
-        propagate_taint_SLTU(rd, rs1, rs2);
+        propagate_taint_SLTU(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_XOR:
     {
-        propagate_taint_XOR(rd, rs1, rs2);
+        propagate_taint_XOR(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_SRL:
     {
-        propagate_taint_SRL(rd, rs1, rs2);
+        propagate_taint_SRL(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_SRA:
     {
-        propagate_taint_SRA(rd, rs1, rs2);
+        propagate_taint_SRA(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_OR:
     {
-        propagate_taint_OR(rd, rs1, rs2);
+        propagate_taint_OR(vcpu_idx, rd, rs1, rs2);
         break;
     }
     case INSTR32_F3F7_AND:
     {
-        propagate_taint_AND(rd, rs1, rs2);
+        propagate_taint_AND(vcpu_idx, rd, rs1, rs2);
         break;
     }
     default:
@@ -548,12 +553,12 @@ static void propagate_taint32__reg_reg_op(uint32_t instr)
     }
 }
 
-static void propagate_taint32(uint32_t instr)
+static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
 {
     #ifndef NDEBUG
     // the lsb are 0b11 for all 32b instructions
     uint8_t opcode_lo = INSTR32_OPCODE_GET_LO(instr);
-    assert(opcode_lo = 0b11);
+    assert(opcode_lo == 0b11);
     #endif
 
     uint8_t opcode_hi = INSTR32_OPCODE_GET_HI(instr);
@@ -563,10 +568,13 @@ static void propagate_taint32(uint32_t instr)
     switch (opcode_hi)
     {
     case INSTR32_OPCODE_HI_LOAD:
-        //propagate_taint32__load(instr);
+        propagate_taint32__load(vcpu_idx, instr);
+        break;
+    case INSTR32_OPCODE_HI_STORE:
+        propagate_taint32__store(vcpu_idx, instr);
         break;
     case INSTR32_OPCODE_HI_OP:
-        propagate_taint32__reg_reg_op(instr);
+        propagate_taint32__reg_reg_op(vcpu_idx, instr);
         break;
     default:
         break;
@@ -574,7 +582,7 @@ static void propagate_taint32(uint32_t instr)
 }
 
 
-static void propagate_taint16(uint32_t instr)
+static void propagate_taint16(unsigned int vcpu_idx, uint32_t instr)
 {
     // the lsb is NOT 0b11 for all 16b instructions
     uint8_t lo = instr & 0b11;
@@ -595,15 +603,15 @@ static void propagate_taint16(uint32_t instr)
     }
 }
 
-void propagate_taint(uint32_t instr_size, uint32_t instr)
+void propagate_taint(unsigned int vcpu_idx, uint32_t instr_size, uint32_t instr)
 {
     switch (instr_size)
     {
-    case 2:
-        propagate_taint16(instr);
+    case 16:
+        propagate_taint16(vcpu_idx, instr);
         break;
-    case 4:
-        propagate_taint32(instr);
+    case 32:
+        propagate_taint32(vcpu_idx, instr);
         break;
     default:
         fprintf(stderr, "ERROR: Unexpected instruction size: %" PRIu32 "B.\n", instr_size);
