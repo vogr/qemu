@@ -128,7 +128,7 @@ static void propagate_taint_AND(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     assert(rd != 0);
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -146,7 +146,7 @@ static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
     
-    uint64_t v1 = get_one_reg_value(rs1);
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1];
 
     /*
@@ -174,7 +174,7 @@ static void propagate_taint_OR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, u
 
     assert(rd != 0);
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -193,7 +193,7 @@ static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
     
-    uint64_t v1 = get_one_reg_value(rs1);
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1];
 
     /*
@@ -256,7 +256,7 @@ static void propagate_taint_SLL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
      * register rs1 by the shift amount held in the lower 5 bits of register rs2.
      */
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -287,7 +287,7 @@ static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
      * register rs1 by the shift amount held in the lower 5 bits of register rs2.
      */
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -318,7 +318,7 @@ static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
      * register rs1 by the shift amount held in the lower 5 bits of register rs2.
      */
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
@@ -395,7 +395,7 @@ static void propagate_taint_SLTU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
     shadow_regs[rd] = taint_result__sltu(vals.v1, vals.v2, t1, t2);
 }
 
@@ -406,7 +406,7 @@ static void propagate_taint_SLTUI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1
 
     uint64_t t1 = shadow_regs[rs1];
 
-    uint64_t v1 = get_one_reg_value(rs1);
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     shadow_regs[rd] = taint_result__sltu(v1, vimm, t1, 0);
 }
 
@@ -443,7 +443,7 @@ static void propagate_taint_SLT(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
 
-    struct src_regs_values vals = get_src_reg_values(rs1, rs2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
     shadow_regs[rd] = taint_result__slt(vals.v1, vals.v2, t1, t2);
 }
 
@@ -454,7 +454,7 @@ static void propagate_taint_SLTI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     uint64_t t1 = shadow_regs[rs1];
 
-    uint64_t v1 = get_one_reg_value(rs1);
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     shadow_regs[rd] = taint_result__slt(v1, vimm, t1, 0);
 }
 
@@ -485,10 +485,8 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
     uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint8_t rs2 = INSTR32_RS2_GET(instr);
 
-    struct src_regs_values vmon = get_src_reg_values(rs1, rs2);
-    struct src_regs_values vqemu = get_src_reg_values_qemu(vcpu_idx, rs1, rs2);
-    printf("%" PRIx32 "MON op(%" PRIx64 ", %" PRIx64 ")\n", instr, vmon.v1, vmon.v2);
-    printf("%" PRIx32 "REG op(%" PRIx64 ", %" PRIx64 ")\n", instr, vqemu.v1, vqemu.v2);
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+    printf("%" PRIx32 "REG op(%" PRIx64 ", %" PRIx64 ")\n", instr, vals.v1, vals.v2);
 
     if (rd == 0)
     {

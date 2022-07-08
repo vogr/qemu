@@ -13,11 +13,8 @@
 
 #include <qemu-plugin.h>
 
-#include "hmp.h"
 #include "params.h"
 #include "propagate.h"
-
-#define HMP_UNIX_SOCKET "/tmp/qemu_hmp.sock"
 
 
 /*
@@ -155,7 +152,6 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 static void plugin_exit(qemu_plugin_id_t id, void *p)
 {
     fprintf(stderr, "Exiting taint tracking plugin.\n");
-    close_hmp_socket();
 }
 
 
@@ -166,10 +162,6 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     
-    fprintf(stderr, "Connecting to monitor on unix socket: %s\n", HMP_UNIX_SOCKET);
-
-    open_hmp_socket(HMP_UNIX_SOCKET);
-
     // allocate memory for the shadow memory
     // noreserve: only allocate a page when we write a taint value
     // FIXME: one bit per location, should extend to set of labels.
