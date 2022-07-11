@@ -51,6 +51,8 @@
 #define INSTR32_S_IMM_5_11_GET(instr) ((instr >>  25) & MASK(7))
 #define INSTR32_U_IMM_12_31_GET(instr) ((instr >>  12) & MASK(20))
 
+#define INSTR32_I_SHAMT_GET(instr) ((instr >>  20) & MASK(5))
+
 #define INSTR32_S_IMM_0_11_GET(instr) ((INSTR32_S_IMM_5_11_GET(instr) << 5) | INSTR32_S_IMM_0_4_GET(instr))
 
 
@@ -109,6 +111,19 @@
 
 // Register-immediate ops
 
+#define INSTR32_F3_ADDI  (0b000 << 12)
+#define INSTR32_F3_SLTI  (0b010 << 12)
+#define INSTR32_F3_STLIU (0b011 << 12)
+#define INSTR32_F3_XORI  (0b100 << 12)
+#define INSTR32_F3_ORI   (0b110 << 12)
+#define INSTR32_F3_ANDI  (0b111 << 12)
+
+#define INSTR32_F3_SLLI (0b001 << 12)
+#define INSTR32_F7_SLLI (0b0000000 << 25)
+
+#define INSTR32_F3_SRLI__SRAI (0b101 << 12)
+#define INSTR32_F7_SRLI (0b0000000 << 25)
+#define INSTR32_F7_SRAI (0b0100000 << 25)
 
 // Register-register ops
 
@@ -126,10 +141,8 @@
 
 
 
-
-
 /***
- * 32 bits long instructions (uncompressed)
+ * 16 bits long instructions (compressed)
  * 
  * Formats: FIXME
  */

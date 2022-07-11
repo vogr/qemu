@@ -29,8 +29,10 @@
 /***
  * Loads
  * 
- * FIXME: In the load instr we have access to the virt address, but the
- *        virt->phys translation can only be done 
+ * FIXME: need to do vaddr->paddr translation. 2 options:
+ * 1. Use the official plugin API: translation in mem cb callback
+ *      + uses TLB data, so low overhead
+ * 2. Use my own API: full PTW so high overhead!
  ***/
 
 static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
@@ -105,11 +107,25 @@ static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     propagate_taint_op__lazy(vcpu_idx, rd, rs1, rs2);
 }
 
+static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+{
+    // FIXME: proper add handling!
+    propagate_taint_op__lazy(vcpu_idx, rd, rs1, 0);
+}
+
 static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     // FIXME: proper sub handling!
     propagate_taint_op__lazy(vcpu_idx, rd, rs1, rs2);
 }
+
+static void propagate_taint_SUBI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+{
+    // FIXME: proper sub handling!
+    propagate_taint_op__lazy(vcpu_idx, rd, rs1, 0);
+}
+
+
 
 // AND and OR
 
@@ -463,9 +479,14 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
 {
     uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
 
+    // imm and f7/shamt bits overlap, only one should be used!
+    uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
+    uint32_t f7 = instr & INSTR32_FUNCT7_MASK;
+    uint32_t shamt = INSTR32_I_SHAMT_GET(instr); 
+    
+    
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
-    uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
 
     if (rd == 0)
     {
@@ -473,6 +494,60 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
         return;
     }
 
+    switch(f3)
+    {
+        case INSTR32_F3_ADDI:
+        {
+            propagate_taint_ADDI(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLTI:
+        {
+            propagate_taint_SLTI(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_STLIU:
+        {
+            propagate_taint_SLTIU(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_XORI:
+        {
+            propagate_taint_XORI(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_ORI:
+        {
+            propagate_taint_ORI(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_ANDI:
+        {
+            propagate_taint_ANDI(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLLI:
+        {
+            if (f7 == INSTR32_F7_SLLI)
+            {
+                propagate_taint_SLLI(vcpu_idx, rd, rs1, shamt);
+            }
+            break;
+        }
+        case INSTR32_F3_SRLI__SRAI:
+        {
+            if (f7 == INSTR32_F7_SRLI)
+            {
+                propagate_taint_SRLI(vcpu_idx, rd, rs1, shamt);
+            }
+            else if (f7 == INSTR32_F7_SRAI)
+            {
+                propagate_taint_SRAI(vcpu_idx, rd, rs1, shamt);
+            }
+            
+            break;
+        }
+    }
 }
 
 
