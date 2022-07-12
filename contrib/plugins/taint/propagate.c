@@ -293,6 +293,18 @@ static void propagate_taint_SLL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     shadow_regs[rd] = tout;
 }
 
+static void propagate_taint_SLLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t shamt)
+{
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+    uint64_t t1 = shadow_regs[rs1];
+
+    uint64_t tA = t1 << shamt;
+
+    shadow_regs[rd] = tA;
+}
+
+
+
 static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
@@ -322,6 +334,17 @@ static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t tout = tA | tB;
 
     shadow_regs[rd] = tout;
+}
+
+
+static void propagate_taint_SRLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t shamt)
+{
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+    uint64_t t1 = shadow_regs[rs1]; 
+
+    uint64_t tA = t1 >> shamt;
+    
+    shadow_regs[rd] = tA;
 }
 
 static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
@@ -356,6 +379,18 @@ static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 }
+
+static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t shamt)
+{
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+    uint64_t t1 = shadow_regs[rs1]; 
+
+    uint64_t tA = ((int64_t)t1) >> shamt;
+    
+    shadow_regs[rd] = tA;
+}
+
+
 
 // SLT and SLTU
 
@@ -415,7 +450,7 @@ static void propagate_taint_SLTU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     shadow_regs[rd] = taint_result__sltu(vals.v1, vals.v2, t1, t2);
 }
 
-static void propagate_taint_SLTUI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+static void propagate_taint_SLTIU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
@@ -482,7 +517,7 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
     // imm and f7/shamt bits overlap, only one should be used!
     uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
     uint32_t f7 = instr & INSTR32_FUNCT7_MASK;
-    uint32_t shamt = INSTR32_I_SHAMT_GET(instr); 
+    uint8_t shamt = INSTR32_I_SHAMT_GET(instr); 
     
     
     uint8_t rd = INSTR32_RD_GET(instr);
@@ -506,7 +541,7 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
             propagate_taint_SLTI(vcpu_idx, rd, rs1, imm);
             break;
         }
-        case INSTR32_F3_STLIU:
+        case INSTR32_F3_SLTIU:
         {
             propagate_taint_SLTIU(vcpu_idx, rd, rs1, imm);
             break;

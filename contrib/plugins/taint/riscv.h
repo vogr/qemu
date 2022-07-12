@@ -113,7 +113,7 @@
 
 #define INSTR32_F3_ADDI  (0b000 << 12)
 #define INSTR32_F3_SLTI  (0b010 << 12)
-#define INSTR32_F3_STLIU (0b011 << 12)
+#define INSTR32_F3_SLTIU (0b011 << 12)
 #define INSTR32_F3_XORI  (0b100 << 12)
 #define INSTR32_F3_ORI   (0b110 << 12)
 #define INSTR32_F3_ANDI  (0b111 << 12)
