@@ -12,11 +12,9 @@
 #include "riscv.h"
 #include "params.h"
 
-
-
-// Map compressed representation r' (3 bits) to full register repr (5 bits)
-// see https://en.wikichip.org/wiki/risc-v/registers
-#define REG_OF_COMPRESSED(x) ((uint8_t)x + 8)
+// NOTE: When manipulating register values, and memory values, we are assuming
+// that the host and target have the same endianess. For our purposes, all our
+// platforms are little-endian (ie x86 host and RISCV target).
 
 
 
@@ -35,14 +33,77 @@
  * 2. Use my own API: full PTW so high overhead!
  ***/
 
+
+
 static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 {
-    uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
 
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
-    uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
+    uint16_t imm0_11 = INSTR32_I_IMM_0_11_GET(instr);
 
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+
+    if (t1)
+    {
+        // tainted ptr implies fully tainted value!
+        shadow_regs[rd] = -1;
+    }
+    else
+    {
+        // else propagate the taint from the memory location.
+
+        // The effective address is obtained by adding register rs1 to
+        // the sign-extended 12-bit offset.
+        
+        // do the sign extension, interpret as signed
+        int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
+
+        uint64_t vaddr = v1 + imm;
+
+        // adress translation
+        // FIXME: does this work or shd we also add logic in mem callback?
+        qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
+        uint64_t paddr = qemu_plugin_translate_vaddr(cs, vaddr);
+
+
+        // NOTE: the loaded value is sign (/value for the U variants) extended
+        // to XLEN bits before being stored in the register.
+        // This means we will update all the bits in the shadow register.
+
+        uint64_t t = 0;
+
+        // Note that casting from short int to large uint does the sign expansion,
+        // casting from short uint to large uint does not.
+        switch (f3)
+        {
+            case INSTR32_F3_LB:
+                t = *(int8_t*)(shadow_mem + paddr);
+                break;
+            case INSTR32_F3_LH:
+                t = *(int16_t*)(shadow_mem + paddr);
+                break;
+            case INSTR32_F3_LW:
+                t = *(int32_t*)(shadow_mem + paddr);
+                break;
+            case INSTR32_F3_LD:
+                t = *(int64_t*)(shadow_mem + paddr);
+                break;
+            case INSTR32_F3_LBU:
+                t = *(uint8_t*)(shadow_mem + paddr);
+                break;
+            case INSTR32_F3_LHU:
+                t = *(uint16_t*)(shadow_mem + paddr);
+                break;
+            case INSTR32_F3_LWU:
+                t = *(uint32_t*)(shadow_mem + paddr);
+                break;
+        }
+
+        shadow_regs[rd] = t;
+    }
 }
 
 
@@ -52,13 +113,60 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 
 static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
 {
-    uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
 
     uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint8_t rs2 = INSTR32_RS2_GET(instr);
 
-    uint16_t imm = INSTR32_S_IMM_0_11_GET(instr);
-    
+    // imm0_11 is split in S form, the macro concatenates the two parts
+    uint16_t imm0_11 = INSTR32_S_IMM_0_11_GET(instr);
+
+
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    // Tainted ptr store: need to taint every possible dest
+    // ie all combinations of tainted bits (in vaddr, not in t1!)
+    // FIXME: support tainted dest.
+    if (t1)
+    {
+        fprintf(stderr, "ERROR: no support for tainted store destinations yet.\n");
+    }
+
+    // The effective address is obtained by adding register rs1 to
+    // the sign-extended 12-bit offset.
+
+    // do the sign extension, interpret as signed
+    // NOTE: we cd combine the concatenation and sign extension, but really micro-opt
+    int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
+
+    //FIXME: need to have tainted pointer 
+    //FIXME: use addi logic to propagate taint!
+    uint64_t vaddr = vals.v1 + imm;
+
+    // adress translation
+    // FIXME: does this work or shd we also add logic in mem callback?
+    qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
+    uint64_t paddr = qemu_plugin_translate_vaddr(cs, vaddr);
+
+    // truncate the taint when writing
+    switch (f3)
+    {
+        case INSTR32_F3_SB:
+            *(uint8_t*)(shadow_mem + paddr) = t2;
+            break;
+        case INSTR32_F3_SH:
+            *(uint16_t*)(shadow_mem + paddr) = t2;
+            break;
+        case INSTR32_F3_SW:
+            *(uint32_t*)(shadow_mem + paddr) = t2;
+            break;
+        case INSTR32_F3_SD:
+            *(uint64_t*)(shadow_mem + paddr) = t2;
+            break;
+    }
+
 }
 
 
@@ -110,6 +218,7 @@ static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     // FIXME: proper add handling!
+    // FIXME: this is __really__ important bc "mov rd,rs" is just an alias for "addi rd,rs,0"
     propagate_taint_op__lazy(vcpu_idx, rd, rs1, 0);
 }
 
@@ -510,13 +619,60 @@ static void propagate_taint_SLTI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 }
 
 
+// AUIPC and LUI
+
+
+static void propagate_taint32_AUIPC(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint32_t imm31_12 = INSTR32_U_IMM_12_31_GET(instr);
+    uint8_t rd = INSTR32_RD_GET(instr);
+
+    // In RV64:
+    // AUIPC appends 12 low-order zero bits to the 20-bit
+    // U-immediate, sign-extends the result to 64 bits,
+    // adds it to the address of the AUIPC instruction (pc),
+    // then places the result in register rd.
+    uint32_t imm32 = imm31_12 << 12;
+
+    // do the sign extension, interpret as signed
+    int64_t imm = (((int64_t)imm32) << 32) >> 32;
+
+    //FIXME: need an additionnal API to get pc!
+    //FIXME: use the add propagation logic to propagate pc taint to rd
+    //FIXME: for now assume pc not tainted
+
+}
+
+static void propagate_taint32_LUI(unsigned int vcpu_idx, uint32_t instr)
+{
+    //uint32_t imm31_12 = INSTR32_U_IMM_12_31_GET(instr);
+    uint8_t rd = INSTR32_RD_GET(instr);
+
+    // In RV64:
+    // LUI places the 20-bit U-immediate
+    // into bits 31–12 of register rd and places zero in the lowest 12 bits.
+    // The 32-bit result is sign-extended to 64 bits.
+    
+    // Taint-wise: clears rd!
+    
+    //uint32_t imm32 = imm31_12 << 12;
+    //int64_t imm = (((int64_t)imm32) << 32) >> 32;
+
+    shadow_regs[rd] = 0;
+}
+
+/***
+ * Opcode dispatch (uncompressed instructions)
+ ***/
+
 static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
 {
-    uint32_t f3 = instr & INSTR32_FUNCT3_MASK;
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
 
     // imm and f7/shamt bits overlap, only one should be used!
     uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
-    uint32_t f7 = instr & INSTR32_FUNCT7_MASK;
+    uint32_t f7 = INSTR32_GET_FUNCT7(instr);
+    // note that shamt is NOT sign extended ()
     uint8_t shamt = INSTR32_I_SHAMT_GET(instr); 
     
     
@@ -561,7 +717,7 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
             propagate_taint_ANDI(vcpu_idx, rd, rs1, imm);
             break;
         }
-        case INSTR32_F3_SLLI:
+        case INSTR32_F3_SLLI__:
         {
             if (f7 == INSTR32_F7_SLLI)
             {
@@ -589,7 +745,8 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
 
 static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
 {
-    uint32_t f7_f3 = instr & (INSTR32_FUNCT3_MASK | INSTR32_FUNCT7_MASK);
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+    uint8_t f7 = INSTR32_GET_FUNCT7(instr);
 
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
@@ -604,60 +761,64 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         return;
     }
 
-    switch (f7_f3)
+    switch (f3)
     {
-    case INSTR32_F3F7_ADD:
+    case INSTR32_F3_ADD_SUB:
     {
-        propagate_taint_ADD(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_ADD)
+            propagate_taint_ADD(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_SUB)
+            propagate_taint_SUB(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3F7_SUB:
+    case INSTR32_F3_SLL:
     {
-        propagate_taint_SUB(vcpu_idx, rd, rs1, rs2);
-        break;
-    }
-    case INSTR32_F3F7_SLL:
-    {
+        assert(f7 == INSTR32_F7_SLL);
         propagate_taint_SLL(vcpu_idx, rd, rs1, rs2);
         break;
     }
-    case INSTR32_F3F7_SLT:
+    case INSTR32_F3_SLT:
     {
+        assert(f7 == INSTR32_F7_SLT);
         propagate_taint_SLT(vcpu_idx, rd, rs1, rs2);
         break;
     }
-    case INSTR32_F3F7_SLTU:
+    case INSTR32_F3_SLTU:
     {
+        assert(f7 == INSTR32_F7_SLTU);
         propagate_taint_SLTU(vcpu_idx, rd, rs1, rs2);
         break;
     }
-    case INSTR32_F3F7_XOR:
+    case INSTR32_F3_XOR:
     {
+        assert(f7 == INSTR32_F7_XOR);
         propagate_taint_XOR(vcpu_idx, rd, rs1, rs2);
         break;
     }
-    case INSTR32_F3F7_SRL:
+    case INSTR32_F3_SRL_SRA:
     {
-        propagate_taint_SRL(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_SRL)
+            propagate_taint_SRL(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_SRA)
+            propagate_taint_SRA(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3F7_SRA:
+    case INSTR32_F3_OR:
     {
-        propagate_taint_SRA(vcpu_idx, rd, rs1, rs2);
-        break;
-    }
-    case INSTR32_F3F7_OR:
-    {
+        assert(f7 == INSTR32_F7_OR);
         propagate_taint_OR(vcpu_idx, rd, rs1, rs2);
         break;
     }
-    case INSTR32_F3F7_AND:
+    case INSTR32_F3_AND:
     {
+        assert(f7 == INSTR32_F7_AND);
         propagate_taint_AND(vcpu_idx, rd, rs1, rs2);
         break;
     }
-    default:
-        break;
     }
 }
 
@@ -672,23 +833,85 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
     uint8_t opcode_hi = INSTR32_OPCODE_GET_HI(instr);
 
 
-    // the opcode
+    // the opcode always ends with 0b11, dispatch on the higher bits
+    // to make it easier for the compiler to create a jump table.
     switch (opcode_hi)
     {
     case INSTR32_OPCODE_HI_LOAD:
         propagate_taint32__load(vcpu_idx, instr);
         break;
+    
+    case INSTR32_OPCODE_HI_LOAD_FP: // FIXME: no support for floats yet
+    case INSTR32_OPCODE_HI_MISC_MEM: // FIXME: what is misc mem?
+        break;
+
+    case INSTR32_OPCODE_HI_OP_IMM:
+        propagate_taint32__reg_imm_op(vcpu_idx, instr);
+        break;
+    
+    case INSTR32_OPCODE_HI_AUIPC:
+        //FIXME: AUIPC does not read pc taint!
+        propagate_taint32_AUIPC(vcpu_idx, instr);
+        break;
+
+    case INSTR32_OPCODE_HI_OP_IMM_32:
+        //FIXME: wordsize regimm ops in RV64
+        //       -> sign extended so easy to implement on top of dw size
+        break;
+    
     case INSTR32_OPCODE_HI_STORE:
         propagate_taint32__store(vcpu_idx, instr);
         break;
+
+    case INSTR32_OPCODE_HI_STORE_FP: // FIXME: no support for floats (F extension)
+        break;
+
+    case INSTR32_OPCODE_HI_AMO: // FIXME: no support for atomic operations (A extension)
+        break;
+
     case INSTR32_OPCODE_HI_OP:
         propagate_taint32__reg_reg_op(vcpu_idx, instr);
         break;
-    default:
+    
+    case INSTR32_OPCODE_HI_LUI:
+        propagate_taint32_LUI(vcpu_idx, instr);
+        break;
+
+    case INSTR32_OPCODE_HI_OP_32:
+        //FIXME: wordsize reg reg ops in RV64
+        //       -> sign extended so easy to implement on top of dw size
+        break;
+
+    case INSTR32_OPCODE_HI_MADD:
+    case INSTR32_OPCODE_HI_MSUB:
+    case INSTR32_OPCODE_HI_NMSUB:
+    case INSTR32_OPCODE_HI_NMADD:
+    case INSTR32_OPCODE_HI_OP_FP:  // FIXME: no support for floats (F extension)
+        break;
+
+    case INSTR32_OPCODE_HI_BRANCH:
+        // no control flow taint
+        break;
+    
+    case INSTR32_OPCODE_HI_JALR:
+    case INSTR32_OPCODE_HI_JAL:
+        // no control flow taint BUT
+        // - need to clear taint in rd
+        // - need to taint to pc if reg input is tainted
+        // FIXME: clear rd taint
+        break;
+
+    case INSTR32_OPCODE_HI_SYSTEM:
+        // FIXME: no support for CSR instructions
         break;
     }
 }
 
+
+
+/***
+ * Opcode dispatch (compressed instructions)
+ ***/
 
 static void propagate_taint16(unsigned int vcpu_idx, uint32_t instr)
 {
@@ -710,6 +933,11 @@ static void propagate_taint16(unsigned int vcpu_idx, uint32_t instr)
     }
     }
 }
+
+
+/***
+ * Opcode dispatch entrypoint
+ ***/
 
 void propagate_taint(unsigned int vcpu_idx, uint32_t instr_size, uint32_t instr)
 {

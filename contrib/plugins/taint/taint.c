@@ -117,6 +117,8 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         ins_data->instr_size = instr_size;
         
         // read the instruction's bytecode
+        // instr is little endian, the type aliasing works if the host machine
+        // also uses little-endian integers!
         switch (instr_size)
         {
             case 16:
