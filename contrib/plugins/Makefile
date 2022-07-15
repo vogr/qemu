@@ -44,7 +44,7 @@ lib%.so: %.o
 
 
 TAINT_BUILD_DIR := $(CURDIR)/taint
-TAINT_OBJS := taint/taint.o taint/regs.o taint/propagate.o taint/hmp.o taint/params.o
+TAINT_OBJS := taint/taint.o taint/regs.o taint/propagate.o taint/params.o
 
 $(TAINT_BUILD_DIR):
 	mkdir $(TAINT_BUILD_DIR)

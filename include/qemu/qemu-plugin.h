@@ -481,6 +481,15 @@ uint64_t qemu_plugin_hwaddr_phys_addr(const struct qemu_plugin_hwaddr *haddr);
  */
 const char *qemu_plugin_hwaddr_device_name(const struct qemu_plugin_hwaddr *h);
 
+
+/**
+ * qemu_plugin_hwaddr_ram_addr() - get the ram_addr corresponding to
+ * a memory access.
+ * @haddr: address handle from qemu_plugin_get_hwaddr()
+ */
+uint64_t qemu_plugin_hwaddr_ram_addr(const struct qemu_plugin_hwaddr *haddr);
+
+
 typedef void
 (*qemu_plugin_vcpu_mem_cb_t)(unsigned int vcpu_index,
                              qemu_plugin_meminfo_t info, uint64_t vaddr,
@@ -572,8 +581,13 @@ int qemu_plugin_n_vcpus(void);
 /* returns -1 in user-mode */
 int qemu_plugin_n_max_vcpus(void);
 
-/* opaque handler for CPUState */
+/* returns -1 in user-mode */
+uint64_t qemu_plugin_get_ram_size(void);
 
+/* returns -1 in user-mode */
+uint64_t qemu_plugin_get_max_ram_size(void);
+
+/* opaque handler for CPUState */
 typedef void* qemu_cpu_state;
 
 /**
@@ -594,12 +608,21 @@ qemu_cpu_state qemu_plugin_get_cpu(int vcpu_idx);
 void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values);
 
 /**
- * qemu_plugin_translate_vaddr() - translate vaddr to physaddr
+ * qemu_plugin_vaddr_to_paddr() - translate virtual address to
+ * physical address (in guest memory)
  *
- * @pcs: cpu state handle, as provided by qemu_plugin_get_cpu()
- * @pvaddr: virtual address to translate
+ * @cs: cpu state handle, as provided by qemu_plugin_get_cpu()
+ * @vaddr: virtual address to translate
  */
-uint64_t qemu_plugin_translate_vaddr(qemu_cpu_state pcs, uint64_t pvaddr);
+uint64_t qemu_plugin_vaddr_to_paddr(qemu_cpu_state cs, uint64_t vaddr);
+
+/**
+ * qemu_plugin_paddr_to_ram_addr() - translate guest physical
+ * address to ram address
+ *
+ * @vaddr: physical address to translate
+ */
+uint64_t qemu_plugin_paddr_to_ram_addr(uint64_t paddr);
 
 
 /**

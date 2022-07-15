@@ -355,6 +355,25 @@ const char *qemu_plugin_hwaddr_device_name(const struct qemu_plugin_hwaddr *h)
 #endif
 }
 
+
+uint64_t qemu_plugin_hwaddr_ram_addr(const struct qemu_plugin_hwaddr *haddr)
+{
+#ifdef CONFIG_SOFTMMU
+    if (!haddr->is_io)
+    {
+        void * ptr = haddr->v.ram.hostaddr;
+        ram_addr_t ram_addr = qemu_ram_addr_from_host(ptr);
+        if (ram_addr == RAM_ADDR_INVALID) {
+            error_report("Bad ram pointer %p", ptr);
+            abort();
+        }
+        return ram_addr;
+    }
+#endif
+    return 0;
+}
+
+
 /*
  * Queries to the number and potential maximum number of vCPUs there
  * will be. This helps the plugin dimension per-vcpu arrays.
@@ -384,6 +403,25 @@ int qemu_plugin_n_max_vcpus(void)
     return get_ms()->smp.max_cpus;
 #endif
 }
+
+uint64_t qemu_plugin_get_ram_size(void)
+{
+#ifdef CONFIG_USER_ONLY
+    return -1;
+#else
+    return get_ms()->ram_size;
+#endif
+}
+
+uint64_t qemu_plugin_get_max_ram_size(void)
+{
+#ifdef CONFIG_USER_ONLY
+    return -1;
+#else
+    return get_ms()->maxram_size;
+#endif
+}
+
 
 
 /*
@@ -423,19 +461,34 @@ void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int
  * (ie after the instruction)
  */
 
-uint64_t qemu_plugin_translate_vaddr(qemu_cpu_state pcs, uint64_t pvaddr)
+uint64_t qemu_plugin_vaddr_to_paddr(qemu_cpu_state _cs, uint64_t _vaddr)
 {
 #ifndef CONFIG_USER_ONLY
-    CPUState * cs = CPU(pcs);
-    target_ulong va = (target_ulong)pvaddr;
+    CPUState * cs = CPU(_cs);
+    target_ulong va = (target_ulong)_vaddr;
     hwaddr page_paddr = cpu_get_phys_page_debug(cs, va);
-    hwaddr phys_addr = page_paddr | (va & (TARGET_PAGE_SIZE - 1));
-    return phys_addr;
+    hwaddr paddr = page_paddr | (va & (TARGET_PAGE_SIZE - 1));
+    return paddr;
 #else
     return 0;
 #endif
 }
 
+//FIXME: move header at the top
+//FIXME: better interface than returning -1 on non-RAM locations
+#include "exec/address-spaces.h"
+uint64_t qemu_plugin_paddr_to_ram_addr(uint64_t paddr)
+{
+    uint64_t offset, mr_len;
+    RCU_READ_LOCK_GUARD(); // autoptr lock
+    MemoryRegion * mr = address_space_translate(&address_space_memory, paddr, &offset, &mr_len, false, MEMTXATTRS_UNSPECIFIED);
+    if (!(memory_region_is_ram(mr) || memory_region_is_romd(mr))) {
+          return -1;
+    }
+
+    ram_addr_t ram_addr = memory_region_get_ram_addr(mr) + offset;
+    return ram_addr;
+}
 
 /*
  * Plugin output

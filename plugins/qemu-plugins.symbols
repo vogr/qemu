@@ -4,10 +4,13 @@
   qemu_plugin_entry_code;
   qemu_plugin_get_cpu;
   qemu_plugin_get_hwaddr;
+  qemu_plugin_get_max_ram_size;
+  qemu_plugin_get_ram_size;
   qemu_plugin_get_register_values;
   qemu_plugin_hwaddr_device_name;
   qemu_plugin_hwaddr_is_io;
   qemu_plugin_hwaddr_phys_addr;
+  qemu_plugin_hwaddr_ram_addr;
   qemu_plugin_insn_data;
   qemu_plugin_insn_disas;
   qemu_plugin_insn_haddr;
@@ -21,6 +24,7 @@
   qemu_plugin_n_max_vcpus;
   qemu_plugin_n_vcpus;
   qemu_plugin_outs;
+  qemu_plugin_paddr_to_ram_addr;
   qemu_plugin_path_to_binary;
   qemu_plugin_register_atexit_cb;
   qemu_plugin_register_flush_cb;
@@ -42,7 +46,7 @@
   qemu_plugin_tb_get_insn;
   qemu_plugin_tb_n_insns;
   qemu_plugin_tb_vaddr;
-  qemu_plugin_translate_vaddr;
   qemu_plugin_uninstall;
+  qemu_plugin_vaddr_to_paddr;
   qemu_plugin_vcpu_for_each;
 };

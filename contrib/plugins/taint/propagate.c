@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "regs.h"
 #include "riscv.h"
@@ -16,6 +17,18 @@
 // that the host and target have the same endianess. For our purposes, all our
 // platforms are little-endian (ie x86 host and RISCV target).
 
+// FIXME: your shadow mem addressing is wrong!!! Addressing with paddr but paddr doesn't start at zero !
+// probably needs to do paddr - 0x8000000
+
+
+#ifndef NDEBUG
+    #include <stdio.h>
+    #define _DEBUG(...) \
+            do { fprintf(stderr, "%s:%d:%s(): ",__FILE__, __LINE__, __func__);\
+            fprintf(stderr, __VA_ARGS__); } while (0)
+#else
+    #define _DEBUG(fmt, ...) do {} while(0)
+#endif
 
 
 /****************************
@@ -33,8 +46,6 @@
  * 2. Use my own API: full PTW so high overhead!
  ***/
 
-
-
 static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 {
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
@@ -46,10 +57,11 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
     uint64_t t1 = shadow_regs[rs1];
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
 
+    uint64_t tout = 0;
     if (t1)
     {
         // tainted ptr implies fully tainted value!
-        shadow_regs[rd] = -1;
+        tout = -1;
     }
     else
     {
@@ -66,7 +78,8 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
         // adress translation
         // FIXME: does this work or shd we also add logic in mem callback?
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-        uint64_t paddr = qemu_plugin_translate_vaddr(cs, vaddr);
+        uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
+        uint64_t ram_addr = qemu_plugin_paddr_to_ram_addr(paddr);
 
 
         // NOTE: the loaded value is sign (/value for the U variants) extended
@@ -80,30 +93,36 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
         switch (f3)
         {
             case INSTR32_F3_LB:
-                t = *(int8_t*)(shadow_mem + paddr);
+                t = *(int8_t*)(shadow_mem + ram_addr);
                 break;
             case INSTR32_F3_LH:
-                t = *(int16_t*)(shadow_mem + paddr);
+                t = *(int16_t*)(shadow_mem + ram_addr);
                 break;
             case INSTR32_F3_LW:
-                t = *(int32_t*)(shadow_mem + paddr);
+                t = *(int32_t*)(shadow_mem + ram_addr);
                 break;
             case INSTR32_F3_LD:
-                t = *(int64_t*)(shadow_mem + paddr);
+                t = *(int64_t*)(shadow_mem + ram_addr);
                 break;
             case INSTR32_F3_LBU:
-                t = *(uint8_t*)(shadow_mem + paddr);
+                t = *(uint8_t*)(shadow_mem + ram_addr);
                 break;
             case INSTR32_F3_LHU:
-                t = *(uint16_t*)(shadow_mem + paddr);
+                t = *(uint16_t*)(shadow_mem + ram_addr);
                 break;
             case INSTR32_F3_LWU:
-                t = *(uint32_t*)(shadow_mem + paddr);
+                t = *(uint32_t*)(shadow_mem + ram_addr);
                 break;
         }
 
-        shadow_regs[rd] = t;
+        tout = t;
+
+        _DEBUG("Propagate load[%" PRIx64 "]  : t%" PRIu8 " = " PRIx64 "\n", vaddr, rd, tout);
+
     }
+    
+    shadow_regs[rd] = tout;
+
 }
 
 
@@ -148,25 +167,26 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
     // adress translation
     // FIXME: does this work or shd we also add logic in mem callback?
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-    uint64_t paddr = qemu_plugin_translate_vaddr(cs, vaddr);
+    uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
+    uint64_t ram_addr = qemu_plugin_paddr_to_ram_addr(paddr);
 
     // truncate the taint when writing
     switch (f3)
     {
         case INSTR32_F3_SB:
-            *(uint8_t*)(shadow_mem + paddr) = t2;
+            *(uint8_t*)(shadow_mem + ram_addr) = t2;
             break;
         case INSTR32_F3_SH:
-            *(uint16_t*)(shadow_mem + paddr) = t2;
+            *(uint16_t*)(shadow_mem + ram_addr) = t2;
             break;
         case INSTR32_F3_SW:
-            *(uint32_t*)(shadow_mem + paddr) = t2;
+            *(uint32_t*)(shadow_mem + ram_addr) = t2;
             break;
         case INSTR32_F3_SD:
-            *(uint64_t*)(shadow_mem + paddr) = t2;
+            *(uint64_t*)(shadow_mem + ram_addr) = t2;
             break;
     }
-
+    _DEBUG("Propagate store: t[%" PRIx64 "] = %" PRIx64 "\n", ram_addr, t2);
 }
 
 
@@ -334,6 +354,9 @@ static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
+    _DEBUG("Propagate ADD(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
 static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
@@ -347,6 +370,11 @@ static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t tout = propagate_taint__add(v1, imm, t1, 0);
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate ADDI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
+
 }
 
 static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
@@ -362,9 +390,13 @@ static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     uint64_t t_add2 = propagate_taint__add(nv2, 1, t2, 0);
 
-    uint64_t t_add1 = propagate_taint__add(vals.v1, nv2 + 1, t1, t_add2);
+    uint64_t tout = propagate_taint__add(vals.v1, nv2 + 1, t1, t_add2);
 
-    shadow_regs[rd] = t_add1;
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SUB(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 
 }
 
@@ -378,6 +410,10 @@ static void propagate_taint_SUBI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t tout = propagate_taint__add(v1, -imm, t1, 0);
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SUBI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
 }
 
 
@@ -410,12 +446,17 @@ static void propagate_taint_AND(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t tout = tA | tB | tC;
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate AND(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
+
 }
 
-static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
-    uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
+    uint64_t imm = (((int64_t)imm0_11) << (64 - 12)) >> (64 - 12);
     
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1];
@@ -425,8 +466,13 @@ static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
      * AND: (T1 * V2)
      */
 
-    uint64_t tout = t1 & vimm;
+    uint64_t tout = t1 & imm;
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate ANDI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
+
 }
 
 static void propagate_taint_OR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
@@ -456,13 +502,17 @@ static void propagate_taint_OR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, u
     uint64_t tout = tA | tB | tC;
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate OR(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
 
-static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
-    uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
+    uint64_t imm = (((int64_t)imm0_11) << (64 - 12)) >> (64 - 12);
     
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1];
@@ -472,8 +522,13 @@ static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
      * OR: (T1 * (NOT V2))
      */
 
-    uint64_t tout = t1 & (~vimm);
+    uint64_t tout = t1 & (~imm);
     shadow_regs[rd] = tout;
+
+
+    _DEBUG("Propagate ORI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
 }
 
 
@@ -488,30 +543,42 @@ static void propagate_taint_XOR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
      */
 
     uint64_t tout;
+    uint64_t t1, t2;
     if (rs1 == rs2)
     {
         tout = 0;
     }
     else
     {
-        uint64_t t1 = shadow_regs[rs1];
-        uint64_t t2 = shadow_regs[rs2];
+        t1 = shadow_regs[rs1];
+        t2 = shadow_regs[rs2];
 
         tout = t1 | t2;
     }
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate XOR(X, X) -> r%" PRIu8 "\n", rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
+
 }
 
 
-static void propagate_taint_XORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+static void propagate_taint_XORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     /*
      * XOR: union of the taints.
      */
 
     uint64_t t1 = shadow_regs[rs1];
+    uint64_t tout = t1;
     shadow_regs[rd] = t1;
+
+    _DEBUG("Propagate XORI(X, X) -> r%" PRIu8 "\n", rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
+
 }
 
 
@@ -546,6 +613,10 @@ static void propagate_taint_SLL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t tout = tA | tB;
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLL(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
 static void propagate_taint_SLLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t shamt)
@@ -553,9 +624,13 @@ static void propagate_taint_SLLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1];
 
-    uint64_t tA = t1 << shamt;
+    uint64_t tout = t1 << shamt;
 
-    shadow_regs[rd] = tA;
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLLI(%" PRIx64 ", shamt=%" PRIu8 ") -> r%" PRIu8 "\n", v1, shamt, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
 }
 
 
@@ -589,6 +664,10 @@ static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t tout = tA | tB;
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRL(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
 
@@ -597,9 +676,13 @@ static void propagate_taint_SRLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1]; 
 
-    uint64_t tA = t1 >> shamt;
+    uint64_t tout = t1 >> shamt;
     
-    shadow_regs[rd] = tA;
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRLI(%" PRIx64 ", shamt=%" PRIu8 ") -> r%" PRIu8 "\n", v1, shamt, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
 }
 
 static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
@@ -633,6 +716,10 @@ static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t tout = tA | tB;
 
     shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRA(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
 static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t shamt)
@@ -640,9 +727,14 @@ static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t t1 = shadow_regs[rs1]; 
 
-    uint64_t tA = ((int64_t)t1) >> shamt;
+    uint64_t tout = ((int64_t)t1) >> shamt;
     
-    shadow_regs[rd] = tA;
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRAI(%" PRIx64 ", shamt=%" PRIu8 ") -> r%" PRIu8 "\n", v1, shamt, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
+
 }
 
 
@@ -702,18 +794,30 @@ static void propagate_taint_SLTU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t t2 = shadow_regs[rs2];
 
     struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    shadow_regs[rd] = taint_result__sltu(vals.v1, vals.v2, t1, t2);
+    uint64_t tout = taint_result__sltu(vals.v1, vals.v2, t1, t2);
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLTU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
-static void propagate_taint_SLTIU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+static void propagate_taint_SLTIU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
-    uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
+    uint64_t imm = (((int64_t)imm0_11) << (64 - 12)) >> (64 - 12);
 
     uint64_t t1 = shadow_regs[rs1];
 
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
-    shadow_regs[rd] = taint_result__sltu(v1, vimm, t1, 0);
+    uint64_t tout = taint_result__sltu(v1, imm, t1, 0);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLTIU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
+
+
 }
 
 // logic used for SLT and SLTI
@@ -750,18 +854,28 @@ static void propagate_taint_SLT(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     uint64_t t2 = shadow_regs[rs2];
 
     struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    shadow_regs[rd] = taint_result__slt(vals.v1, vals.v2, t1, t2);
+    uint64_t tout = taint_result__slt(vals.v1, vals.v2, t1, t2);
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLT(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+
 }
 
-static void propagate_taint_SLTI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+static void propagate_taint_SLTI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
-    uint64_t vimm = (((int64_t)imm) << (64 - 12)) >> (64 - 12);
+    uint64_t imm = (((int64_t)imm0_11) << (64 - 12)) >> (64 - 12);
 
     uint64_t t1 = shadow_regs[rs1];
 
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
-    shadow_regs[rd] = taint_result__slt(v1, vimm, t1, 0);
+    uint64_t tout = taint_result__slt(v1, imm, t1, 0);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLTIU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
 }
 
 
@@ -787,11 +901,19 @@ static void propagate_taint32_AUIPC(unsigned int vcpu_idx, uint32_t instr)
     //FIXME: use the add propagation logic to propagate pc taint to rd
     //FIXME: for now assume pc not tainted
 
+    uint64_t tout = 0;
+    shadow_regs[rd] = tout;
+
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate AUIPC(%" PRIx64 ") -> r%" PRIu8 "\n", imm, rd);
+    _DEBUG(" -> t%" PRIu8 " = %" PRIx64 "\n", rd, tout);
 }
 
 static void propagate_taint32_LUI(unsigned int vcpu_idx, uint32_t instr)
 {
-    //uint32_t imm31_12 = INSTR32_U_IMM_12_31_GET(instr);
+    uint32_t imm31_12 = INSTR32_U_IMM_12_31_GET(instr);
     uint8_t rd = INSTR32_RD_GET(instr);
 
     // In RV64:
@@ -801,10 +923,15 @@ static void propagate_taint32_LUI(unsigned int vcpu_idx, uint32_t instr)
     
     // Taint-wise: clears rd!
     
-    //uint32_t imm32 = imm31_12 << 12;
-    //int64_t imm = (((int64_t)imm32) << 32) >> 32;
+    uint32_t imm32 = imm31_12 << 12;
+    int64_t imm = (((int64_t)imm32) << 32) >> 32;
 
-    shadow_regs[rd] = 0;
+    uint64_t tout = 0;
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate LUI(%" PRIx64 ") -> r%" PRIu8 "\n", imm, rd);
+    _DEBUG(" -> t%" PRIu8 " = %" PRIx64 "\n", rd, tout);
+
 }
 
 /***
@@ -899,7 +1026,6 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
     uint8_t rs2 = INSTR32_RS2_GET(instr);
 
     struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    printf("%" PRIx32 "REG op(%" PRIx64 ", %" PRIx64 ")\n", instr, vals.v1, vals.v2);
 
     if (rd == 0)
     {
