@@ -320,7 +320,7 @@ static uint64_t propagate_taint__add(uint64_t v1, uint64_t v2, uint64_t t1, uint
 
         // the carry sequence covers the range [A_low, X_low]
         // get the corresponding mask
-        uint64_t carry_mask = X_low_mask ^ (A_low_mask >> 1);
+        uint64_t carry_mask = X_low_mask ^ ((int64_t)A_low_mask >> 1);
 
 
         // Propagate taint in the carry mask: everything in the carry mask
@@ -336,7 +336,7 @@ static uint64_t propagate_taint__add(uint64_t v1, uint64_t v2, uint64_t t1, uint
 
         // look for next 1 in A above the carry sequence, ie above X_low
         // but including the prvious endpoint (potentially (1,1))
-        A = A & (~ (X_low_mask >> 1));
+        A = A & (~ ((int64_t)X_low_mask >> 1));
     }
 
     return tout;
@@ -365,13 +365,14 @@ static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     uint64_t v1 = get_one_reg_value(vcpu_idx, v1);
     uint64_t imm = (((int64_t)imm0_11) << 52) >> 52;
     
+    _DEBUG("Propagate ADDI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
+
     uint64_t t1 = shadow_regs[rs1];
 
     uint64_t tout = propagate_taint__add(v1, imm, t1, 0);
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate ADDI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
     _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
 
 
