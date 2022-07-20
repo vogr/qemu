@@ -12,6 +12,7 @@
 #include "regs.h"
 #include "riscv.h"
 #include "params.h"
+#include "logging.h"
 
 // NOTE: When manipulating register values, and memory values, we are assuming
 // that the host and target have the same endianess. For our purposes, all our
@@ -21,14 +22,7 @@
 // probably needs to do paddr - 0x8000000
 
 
-#ifndef NDEBUG
-    #include <stdio.h>
-    #define _DEBUG(...) \
-            do { fprintf(stderr, "%s:%d:%s(): ",__FILE__, __LINE__, __func__);\
-            fprintf(stderr, __VA_ARGS__); } while (0)
-#else
-    #define _DEBUG(fmt, ...) do {} while(0)
-#endif
+
 
 
 /****************************
@@ -194,7 +188,7 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
  * Boolean and arithmetic operations
  **/
 
-static void propagate_taint_op__lazy(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static uint64_t propagate_taint_op__lazy(uint64_t t1, uint64_t t2)
 {
     /*
      * "Lazy" as defined in Valgrind's memcheck:
@@ -213,15 +207,12 @@ static void propagate_taint_op__lazy(unsigned int vcpu_idx, uint8_t rd, uint8_t 
      * NOTE: assumes that the operation writes to all the bits of rd.
      */
 
-    uint64_t t1 = shadow_regs[rs1];
-    uint64_t t2 = shadow_regs[rs2];
-
     // if any bit tainted in any of the operands, the output is completely tainted
-    uint8_t is_out_tainted = t1 || t2;
+    bool is_out_tainted = (t1 || t2);
 
     uint64_t tout = is_out_tainted ? -1 : 0;
 
-    shadow_regs[rd] = tout;
+    return tout;
 }
 
 // ADD and SUB: need to consider the carry.
@@ -935,6 +926,131 @@ static void propagate_taint32_LUI(unsigned int vcpu_idx, uint32_t instr)
 
 }
 
+
+/***
+ * M extension
+ ***/
+
+static void propagate_taint_MUL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate MUL(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_MULH(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate MULH(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_MULHSU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate MULHSU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_MULHU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate MULHU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_DIV(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate DIV(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_DIVU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate DIVU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_REM(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate REM(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+static void propagate_taint_REMU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    uint64_t tout = propagate_taint_op__lazy(t1, t2);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate REMU(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
 /***
  * Opcode dispatch (uncompressed instructions)
  ***/
@@ -997,6 +1113,10 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
             {
                 propagate_taint_SLLI(vcpu_idx, rd, rs1, shamt);
             }
+            else
+            {
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLLI: %" PRIx32 "\n", instr);
+            }
             break;
         }
         case INSTR32_F3_SRLI__SRAI:
@@ -1009,7 +1129,16 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
             {
                 propagate_taint_SRAI(vcpu_idx, rd, rs1, shamt);
             }
+            else
+            {
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRLI_SRAI: %" PRIx32 "\n", instr);
+            }
             
+            break;
+        }
+        default:
+        {
+            fprintf(stderr, "Unknown reg-imm op f3 for instr: %" PRIx32 "\n", instr);
             break;
         }
     }
@@ -1036,62 +1165,93 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
 
     switch (f3)
     {
-    case INSTR32_F3_ADD_SUB:
+    case INSTR32_F3_ADD_SUB_MUL:
     {
         if (f7 == INSTR32_F7_ADD)
             propagate_taint_ADD(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_SUB)
             propagate_taint_SUB(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MUL)
+            propagate_taint_MUL(vcpu_idx, rd, rs1, rs2);
         else
-            fprintf(stderr, "Malformed instruction: %" PRIx32 "\n", instr);
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=ADD_SUB_MUL: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_SLL:
+    case INSTR32_F3_SLL_MULH:
     {
-        assert(f7 == INSTR32_F7_SLL);
-        propagate_taint_SLL(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_SLL)
+            propagate_taint_SLL(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MULH)
+            propagate_taint_MULH(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLL_MULH: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_SLT:
+    case INSTR32_F3_SLT_MULHSU:
     {
-        assert(f7 == INSTR32_F7_SLT);
-        propagate_taint_SLT(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_SLT)
+            propagate_taint_SLT(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MULHSU)
+            propagate_taint_MULHSU(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLT_MULHSU: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_SLTU:
+    case INSTR32_F3_SLTU_MULHU:
     {
-        assert(f7 == INSTR32_F7_SLTU);
-        propagate_taint_SLTU(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_SLTU)
+            propagate_taint_SLTU(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MULHU)
+            propagate_taint_MULHU(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLTU_MULHU: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_XOR:
+    case INSTR32_F3_XOR_DIV:
     {
-        assert(f7 == INSTR32_F7_XOR);
-        propagate_taint_XOR(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_XOR)
+            propagate_taint_XOR(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_DIV)
+            propagate_taint_DIV(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=XOR_DIV: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_SRL_SRA:
+    case INSTR32_F3_SRL_SRA_DIVU:
     {
         if (f7 == INSTR32_F7_SRL)
             propagate_taint_SRL(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_SRA)
             propagate_taint_SRA(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_DIVU)
+            propagate_taint_DIVU(vcpu_idx, rd, rs1, rs2);
         else
-            fprintf(stderr, "Malformed instruction: %" PRIx32 "\n", instr);
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRL_SRA_DIVU: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_OR:
+    case INSTR32_F3_OR_REM:
     {
-        assert(f7 == INSTR32_F7_OR);
-        propagate_taint_OR(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_OR)
+            propagate_taint_OR(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_REM)
+            propagate_taint_REM(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: %" PRIx32 "\n", instr);
         break;
     }
-    case INSTR32_F3_AND:
+    case INSTR32_F3_AND_REMU:
     {
-        assert(f7 == INSTR32_F7_AND);
-        propagate_taint_AND(vcpu_idx, rd, rs1, rs2);
+        if (f7 == INSTR32_F7_AND)
+            propagate_taint_AND(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_REMU)
+            propagate_taint_REMU(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: %" PRIx32 "\n", instr);
         break;
     }
+    default:
+        fprintf(stderr, "Unknown reg-reg op f3 for instr: %" PRIx32 "\n", instr);
+        break;
     }
 }
 
@@ -1152,6 +1312,7 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
 
     case INSTR32_OPCODE_HI_OP_32:
         //FIXME: wordsize reg reg ops in RV64
+        // don't forget M extension (MULW, DIVW, ...)
         //       -> sign extended so easy to implement on top of dw size
         break;
 
@@ -1176,6 +1337,10 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
 
     case INSTR32_OPCODE_HI_SYSTEM:
         // FIXME: no support for CSR instructions
+        break;
+
+    default:
+        fprintf(stderr, "Unknown opcode for instr: %" PRIx32 "\n", instr);
         break;
     }
 }
@@ -1202,6 +1367,7 @@ static void propagate_taint16(unsigned int vcpu_idx, uint32_t instr)
     }
     default:
     {
+        fprintf(stderr, "Unknown opcode for instr16: %" PRIx32 "\n", instr);
         break;
     }
     }
@@ -1223,7 +1389,7 @@ void propagate_taint(unsigned int vcpu_idx, uint32_t instr_size, uint32_t instr)
         propagate_taint32(vcpu_idx, instr);
         break;
     default:
-        fprintf(stderr, "ERROR: Unexpected instruction size: %" PRIu32 "B.\n", instr_size);
+        fprintf(stderr, "ERROR: Unexpected instruction size %" PRIu32 "B for instr: %" PRIx32 "\n", instr_size, instr);
         exit(1);
         break;
     }

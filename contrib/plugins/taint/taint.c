@@ -15,7 +15,7 @@
 
 #include "params.h"
 #include "propagate.h"
-
+#include "logging.h"
 
 /*
  * Taint tracking plugin.
@@ -50,16 +50,16 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
     uint64_t ram_addr_cs = qemu_plugin_paddr_to_ram_addr(paddr_cs);
     if (qemu_plugin_mem_is_store(info))
     {
-        printf("Store");
+        _DEBUG("Store");
     }
     else
     {
-        printf("Load");
+        _DEBUG("Load");
     }
-    printf(" at vaddr %" PRIx64 "\n", vaddr);
-    printf(" -> meminfo: paddr = %" PRIx64 " ram_addr= %" PRIx64 "\n", paddr_meminfo, ram_addr_meminfo);
-    printf(" -> cs/as:   paddr = %" PRIx64 " ram_addr= %" PRIx64 "\n", paddr_cs, ram_addr_cs);
-    printf(" |- logsize=%d sign_extended=%d  big_endian=%d\n",
+    _DEBUG(" at vaddr %" PRIx64 "\n", vaddr);
+    _DEBUG(" -> meminfo: paddr = %" PRIx64 " ram_addr= %" PRIx64 "\n", paddr_meminfo, ram_addr_meminfo);
+    _DEBUG(" -> cs/as:   paddr = %" PRIx64 " ram_addr= %" PRIx64 "\n", paddr_cs, ram_addr_cs);
+    _DEBUG(" |- logsize=%d sign_extended=%d  big_endian=%d\n",
          qemu_plugin_mem_size_shift(info),
          qemu_plugin_mem_is_sign_extended(info),
          qemu_plugin_mem_is_big_endian(info)
@@ -92,7 +92,7 @@ struct InsnData
 static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
 {
     struct InsnData * ins_data = (struct InsnData*)userdata;
-    printf("(%x) %s\n", ins_data->instr, ins_data->disas);
+    _DEBUG("%s\n", ins_data->disas);
     propagate_taint(vcpu_index, ins_data->instr_size, ins_data->instr);
 }
 
@@ -171,6 +171,10 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 static void plugin_exit(qemu_plugin_id_t id, void *p)
 {
     fprintf(stderr, "Exiting taint tracking plugin.\n");
+
+#ifndef NDEBUG
+    taint_logging_stop();
+#endif
 }
 
 
@@ -189,6 +193,11 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     uint64_t max_ram_size = qemu_plugin_get_max_ram_size();
     fprintf(stderr, "Reserving shadow memory for ram size %" PRIu64 "B (max is %" PRIu64 "B)\n", ram_size, max_ram_size);
     shadow_mem = mmap(NULL, ram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+
+#ifndef NDEBUG
+    taint_logging_init();
+#endif
+
 
     return 0;
 }
