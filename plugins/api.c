@@ -475,19 +475,19 @@ uint64_t qemu_plugin_vaddr_to_paddr(qemu_cpu_state _cs, uint64_t _vaddr)
 }
 
 //FIXME: move header at the top
-//FIXME: better interface than returning -1 on non-RAM locations
 #include "exec/address-spaces.h"
-uint64_t qemu_plugin_paddr_to_ram_addr(uint64_t paddr)
+int qemu_plugin_paddr_to_ram_addr(uint64_t paddr, uint64_t * ram_addr)
 {
     uint64_t offset, mr_len;
     RCU_READ_LOCK_GUARD(); // autoptr lock
     MemoryRegion * mr = address_space_translate(&address_space_memory, paddr, &offset, &mr_len, false, MEMTXATTRS_UNSPECIFIED);
-    if (!(memory_region_is_ram(mr) || memory_region_is_romd(mr))) {
-          return -1;
+    if (!(memory_region_is_ram(mr)))
+    {
+        return 1;
     }
 
-    ram_addr_t ram_addr = memory_region_get_ram_addr(mr) + offset;
-    return ram_addr;
+    *ram_addr = memory_region_get_ram_addr(mr) + offset;
+    return 0;
 }
 
 /*

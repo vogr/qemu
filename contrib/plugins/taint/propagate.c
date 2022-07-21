@@ -50,72 +50,87 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 
     uint64_t t1 = shadow_regs[rs1];
     uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+    
+    // The effective load address is obtained by adding register rs1 to
+    // the sign-extended 12-bit offset.
+    
+    // do the sign extension, interpret as signed
+    int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
+
+    uint64_t vaddr = v1 + imm;
 
     uint64_t tout = 0;
     if (t1)
     {
         // tainted ptr implies fully tainted value!
         tout = -1;
+        _DEBUG("Propagate load[v=%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIx64 "\n", vaddr, rd, tout);
     }
     else
     {
         // else propagate the taint from the memory location.
 
-        // The effective address is obtained by adding register rs1 to
-        // the sign-extended 12-bit offset.
-        
-        // do the sign extension, interpret as signed
-        int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
 
-        uint64_t vaddr = v1 + imm;
 
         // adress translation
         // FIXME: does this work or shd we also add logic in mem callback?
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
         uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
-        uint64_t ram_addr = qemu_plugin_paddr_to_ram_addr(paddr);
-
-
-        // NOTE: the loaded value is sign (/value for the U variants) extended
-        // to XLEN bits before being stored in the register.
-        // This means we will update all the bits in the shadow register.
-
-        uint64_t t = 0;
-
-        // Note that casting from short int to large uint does the sign expansion,
-        // casting from short uint to large uint does not.
-        switch (f3)
+        uint64_t ram_addr = 0;
+        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
         {
-            case INSTR32_F3_LB:
-                t = *(int8_t*)(shadow_mem + ram_addr);
-                break;
-            case INSTR32_F3_LH:
-                t = *(int16_t*)(shadow_mem + ram_addr);
-                break;
-            case INSTR32_F3_LW:
-                t = *(int32_t*)(shadow_mem + ram_addr);
-                break;
-            case INSTR32_F3_LD:
-                t = *(int64_t*)(shadow_mem + ram_addr);
-                break;
-            case INSTR32_F3_LBU:
-                t = *(uint8_t*)(shadow_mem + ram_addr);
-                break;
-            case INSTR32_F3_LHU:
-                t = *(uint16_t*)(shadow_mem + ram_addr);
-                break;
-            case INSTR32_F3_LWU:
-                t = *(uint32_t*)(shadow_mem + ram_addr);
-                break;
+            //Non-ram location
+            //FIXME: how shd we handle this?
+            tout = 0;
+            _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- %" PRIx64 "\n", vaddr, paddr, rd, tout);
+        }
+        else
+        {
+
+        
+
+            // NOTE: the loaded value is sign (/value for the U variants) extended
+            // to XLEN bits before being stored in the register.
+            // This means we will update all the bits in the shadow register.
+
+            uint64_t t = 0;
+
+            // Note that casting from short int to large uint does the sign expansion,
+            // casting from short uint to large uint does not.
+            switch (f3)
+            {
+                case INSTR32_F3_LB:
+                    t = *(int8_t*)(shadow_mem + ram_addr);
+                    break;
+                case INSTR32_F3_LH:
+                    t = *(int16_t*)(shadow_mem + ram_addr);
+                    break;
+                case INSTR32_F3_LW:
+                    t = *(int32_t*)(shadow_mem + ram_addr);
+                    break;
+                case INSTR32_F3_LD:
+                    t = *(int64_t*)(shadow_mem + ram_addr);
+                    break;
+                case INSTR32_F3_LBU:
+                    t = *(uint8_t*)(shadow_mem + ram_addr);
+                    break;
+                case INSTR32_F3_LHU:
+                    t = *(uint16_t*)(shadow_mem + ram_addr);
+                    break;
+                case INSTR32_F3_LWU:
+                    t = *(uint32_t*)(shadow_mem + ram_addr);
+                    break;
+            }
+
+            tout = t;
+            _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: t%" PRIu8 " <- t[%" PRIx64 "]=" PRIx64 "\n", vaddr, paddr, rd, tout);
         }
 
-        tout = t;
-
-        _DEBUG("Propagate load[%" PRIx64 "]  : t%" PRIu8 " = " PRIx64 "\n", vaddr, rd, tout);
 
     }
     
     shadow_regs[rd] = tout;
+
 
 }
 
@@ -162,25 +177,32 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
     // FIXME: does this work or shd we also add logic in mem callback?
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
     uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
-    uint64_t ram_addr = qemu_plugin_paddr_to_ram_addr(paddr);
-
-    // truncate the taint when writing
-    switch (f3)
+    uint64_t ram_addr = 0;
+    if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
     {
-        case INSTR32_F3_SB:
-            *(uint8_t*)(shadow_mem + ram_addr) = t2;
-            break;
-        case INSTR32_F3_SH:
-            *(uint16_t*)(shadow_mem + ram_addr) = t2;
-            break;
-        case INSTR32_F3_SW:
-            *(uint32_t*)(shadow_mem + ram_addr) = t2;
-            break;
-        case INSTR32_F3_SD:
-            *(uint64_t*)(shadow_mem + ram_addr) = t2;
-            break;
+        // non-ram location
+        _DEBUG("Propagate store[v=%" PRIx64 ", p=%" PRIx64 "]: to [non-RAM] ; t= %" PRIx64 " not written\n", vaddr, paddr, t2);
     }
-    _DEBUG("Propagate store: t[%" PRIx64 "] = %" PRIx64 "\n", ram_addr, t2);
+    else
+    {
+        // truncate the taint when writing
+        switch (f3)
+        {
+            case INSTR32_F3_SB:
+                *(uint8_t*)(shadow_mem + ram_addr) = t2;
+                break;
+            case INSTR32_F3_SH:
+                *(uint16_t*)(shadow_mem + ram_addr) = t2;
+                break;
+            case INSTR32_F3_SW:
+                *(uint32_t*)(shadow_mem + ram_addr) = t2;
+                break;
+            case INSTR32_F3_SD:
+                *(uint64_t*)(shadow_mem + ram_addr) = t2;
+                break;
+        }
+        _DEBUG("Propagate store[v=%" PRIx64 ", p=%" PRIx64 "]: t[%" PRIx64 "] = %" PRIx64 "\n", vaddr, paddr, ram_addr, t2);
+    }
 }
 
 

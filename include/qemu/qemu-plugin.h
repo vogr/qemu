@@ -622,7 +622,7 @@ uint64_t qemu_plugin_vaddr_to_paddr(qemu_cpu_state cs, uint64_t vaddr);
  *
  * @vaddr: physical address to translate
  */
-uint64_t qemu_plugin_paddr_to_ram_addr(uint64_t paddr);
+int qemu_plugin_paddr_to_ram_addr(uint64_t paddr, uint64_t * ram_addr);
 
 
 /**
