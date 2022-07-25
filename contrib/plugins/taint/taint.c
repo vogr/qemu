@@ -5,14 +5,17 @@
  *   See the COPYING file in the top-level directory.
  */
 
+#include <assert.h>
+#include <errno.h>
 #include <stdio.h>
-
+#include <stdlib.h>
 #include <sys/mman.h>
 
-#include <glib.h>
+#include <pthread.h>
 
 #include <qemu-plugin.h>
 
+#include "monitor.h"
 #include "params.h"
 #include "propagate.h"
 #include "logging.h"
@@ -26,14 +29,14 @@
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 
-
+pthread_t taint_monitor_thread = {0};
 
 static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
                             uint64_t vaddr, void *userdata)
 {
 
     struct qemu_plugin_hwaddr *hwaddr  = qemu_plugin_get_hwaddr(info, vaddr);
-    g_assert(hwaddr != NULL);
+    assert(hwaddr != NULL);
 
     /*
     if (qemu_plugin_hwaddr_is_io(hwaddr)) {
@@ -47,7 +50,12 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_index);
     uint64_t paddr_cs  = qemu_plugin_vaddr_to_paddr(cs, vaddr);
-    uint64_t ram_addr_cs = qemu_plugin_paddr_to_ram_addr(paddr_cs);
+    uint64_t ram_addr_cs = 0;
+    if(qemu_plugin_paddr_to_ram_addr(paddr_cs, &ram_addr_cs))
+    {
+
+    }
+
     if (qemu_plugin_mem_is_store(info))
     {
         _DEBUG("Store");
@@ -182,17 +190,30 @@ QEMU_PLUGIN_EXPORT
 int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
                         int argc, char **argv)
 {
-    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
-    qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
-    
+
+    /* initialize shadow state */
     // allocate memory for the shadow memory
     // noreserve: only allocate a page when we write a taint value
     // FIXME: one bit per location, should extend to set of labels.
-
     uint64_t ram_size = qemu_plugin_get_ram_size();
     uint64_t max_ram_size = qemu_plugin_get_max_ram_size();
     fprintf(stderr, "Reserving shadow memory for ram size %" PRIu64 "B (max is %" PRIu64 "B)\n", ram_size, max_ram_size);
     shadow_mem = mmap(NULL, ram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+
+    // enable taint monitor
+    static char taintmon_path[] = "taint_monitor.sock";
+    int ret = pthread_create(&taint_monitor_thread, NULL, taint_monitor_loop_pthread, (void *)taintmon_path);
+    if (ret)
+    {
+        errno = ret;
+        perror("Error starting taint monitor thread:");
+        exit(1);
+    }
+
+    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+    qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
+    
+
 
 #ifndef NDEBUG
     taint_logging_init();

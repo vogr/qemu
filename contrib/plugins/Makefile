@@ -44,7 +44,15 @@ lib%.so: %.o
 
 
 TAINT_BUILD_DIR := $(CURDIR)/taint
-TAINT_OBJS := taint/logging.o taint/params.o taint/propagate.o taint/regs.o taint/taint.o
+TAINT_OBJS := taint/logging.o taint/monitor.o taint/params.o taint/propagate.o taint/regs.o taint/taint.o
+
+CFLAGS_TAINT :=
+
+LDLIBS_TAINT :=
+LDLIBS_TAINT += -lmsgpackc
+
+taint/%.o: taint/%.c
+	$(CC) $(CFLAGS) $(CFLAGS_TAINT) -c -o $@ $<
 
 $(TAINT_BUILD_DIR):
 	mkdir $(TAINT_BUILD_DIR)
@@ -52,7 +60,7 @@ $(TAINT_BUILD_DIR):
 $(TAINT_OBJS): | $(TAINT_BUILD_DIR)
 
 libtaint.so: $(TAINT_OBJS)
-	$(CC) -shared -Wl,-soname,$@ -o $@ $^ $(LDLIBS)
+	$(CC) -shared -Wl,-soname,$@ $(LDFLAGS_TAINT) -o $@ $^ $(LDLIBS) $(LDLIBS_TAINT)
 
 clean:
 	rm -f *.o *.so *.d
