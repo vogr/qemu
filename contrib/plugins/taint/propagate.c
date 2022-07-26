@@ -40,24 +40,17 @@
  * 2. Use my own API: full PTW so high overhead!
  ***/
 
-static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
+enum LOAD_TYPE {
+    LOAD_LB, LOAD_LH, LOAD_LW, LOAD_LD,
+    LOAD_LBU, LOAD_LHU, LOAD_LWU
+};
+
+static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, uint64_t v1, uint64_t offt, uint64_t t1, enum LOAD_TYPE lt)
 {
-    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+    uint64_t vaddr = v1 + offt;
 
-    uint8_t rd = INSTR32_RD_GET(instr);
-    uint8_t rs1 = INSTR32_RS1_GET(instr);
-    uint16_t imm0_11 = INSTR32_I_IMM_0_11_GET(instr);
-
-    uint64_t t1 = shadow_regs[rs1];
-    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
-    
-    // The effective load address is obtained by adding register rs1 to
-    // the sign-extended 12-bit offset.
-    
-    // do the sign extension, interpret as signed
-    int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
-
-    uint64_t vaddr = v1 + imm;
+    // Do not read/write to the shadow mem concurrently with a taint-get/set query
+    pthread_mutex_lock(&shadow_lock);
 
     uint64_t tout = 0;
     if (t1)
@@ -77,6 +70,7 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
         uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
         uint64_t ram_addr = 0;
+
         if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
         {
             //Non-ram location
@@ -97,27 +91,28 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 
             // Note that casting from short int to large uint does the sign expansion,
             // casting from short uint to large uint does not.
-            switch (f3)
+
+            switch (lt)
             {
-                case INSTR32_F3_LB:
+                case LOAD_LB:
                     t = *(int8_t*)(shadow_mem + ram_addr);
                     break;
-                case INSTR32_F3_LH:
+                case LOAD_LH:
                     t = *(int16_t*)(shadow_mem + ram_addr);
                     break;
-                case INSTR32_F3_LW:
+                case LOAD_LW:
                     t = *(int32_t*)(shadow_mem + ram_addr);
                     break;
-                case INSTR32_F3_LD:
+                case LOAD_LD:
                     t = *(int64_t*)(shadow_mem + ram_addr);
                     break;
-                case INSTR32_F3_LBU:
+                case LOAD_LBU:
                     t = *(uint8_t*)(shadow_mem + ram_addr);
                     break;
-                case INSTR32_F3_LHU:
+                case LOAD_LHU:
                     t = *(uint16_t*)(shadow_mem + ram_addr);
                     break;
-                case INSTR32_F3_LWU:
+                case LOAD_LWU:
                     t = *(uint32_t*)(shadow_mem + ram_addr);
                     break;
             }
@@ -125,19 +120,109 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
             tout = t;
             _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: t%" PRIu8 " <- t[%" PRIx64 "]=" PRIx64 "\n", vaddr, paddr, rd, tout);
         }
-
-
     }
     
     shadow_regs[rd] = tout;
 
+    pthread_mutex_unlock(&shadow_lock);
+}
 
+static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint16_t imm0_11 = INSTR32_I_IMM_0_11_GET(instr);
+
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+    
+    // The effective load address is obtained by adding register rs1 to
+    // the sign-extended 12-bit offset.
+    
+    // do the sign extension, interpret as signed
+    int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
+
+    static enum LOAD_TYPE to_load_type[] = {
+        [INSTR32_F3_LB] = LOAD_LB,
+        [INSTR32_F3_LH] = LOAD_LH,
+        [INSTR32_F3_LW] = LOAD_LW,
+        [INSTR32_F3_LD] = LOAD_LD,
+        [INSTR32_F3_LBU] = LOAD_LBU,
+        [INSTR32_F3_LHU] = LOAD_LHU,
+        [INSTR32_F3_LWU] = LOAD_LWU,
+    };
+    enum LOAD_TYPE lt = to_load_type[f3];
+
+    propagate_taint_load_impl(vcpu_idx, rd, v1, imm, t1, lt);
 }
 
 
 /***
  * Stores
  ***/
+enum STORE_TYPE {
+    STORE_SB, STORE_SH, STORE_SW, STORE_SD
+};
+
+static void propagate_taint_store_impl(unsigned int vcpu_idx, uint64_t v1, uint64_t v2, uint64_t offt, uint64_t t1, uint64_t t2, enum STORE_TYPE st)
+{
+
+    // Tainted ptr store: need to taint every possible dest
+    // ie all combinations of tainted bits (in vaddr, not in t1!)
+    // FIXME: support tainted dest.
+    if (t1)
+    {
+        fprintf(stderr, "ERROR: no support for tainted store destinations yet.\n");
+    }
+
+
+    //FIXME: need to have tainted pointer 
+    //FIXME: use addi logic to propagate taint!
+    uint64_t vaddr = v1 + offt;
+
+    // adress translation
+    // FIXME: does this work or shd we also add logic in mem callback?
+    qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
+    uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
+    uint64_t ram_addr = 0;
+    if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
+    {
+        // non-ram location
+        _DEBUG("Propagate store[v=%" PRIx64 ", p=%" PRIx64 "]: to [non-RAM] ; t= %" PRIx64 " not written\n", vaddr, paddr, t2);
+    }
+    else
+    {
+        // truncate the taint when writing
+
+        // Do not read/write to the shadow mem concurrently with a taint-get/set query
+        pthread_mutex_lock(&shadow_lock);
+
+
+        switch (st)
+        {
+            case STORE_SB:
+                *(uint8_t*)(shadow_mem + ram_addr) = t2;
+                break;
+            case STORE_SH:
+                *(uint16_t*)(shadow_mem + ram_addr) = t2;
+                break;
+            case STORE_SW:
+                *(uint32_t*)(shadow_mem + ram_addr) = t2;
+                break;
+            case STORE_SD:
+                *(uint64_t*)(shadow_mem + ram_addr) = t2;
+                break;
+        }
+
+        // Do not read/write to the shadow mem concurrently with a taint-get/set query
+        pthread_mutex_unlock(&shadow_lock);
+
+
+        _DEBUG("Propagate store[v=%" PRIx64 ", p=%" PRIx64 "]: t[%" PRIx64 "] = %" PRIx64 "\n", vaddr, paddr, ram_addr, t2);
+    }
+}
 
 static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
 {
@@ -154,14 +239,6 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
     uint64_t t2 = shadow_regs[rs2];
     struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
-    // Tainted ptr store: need to taint every possible dest
-    // ie all combinations of tainted bits (in vaddr, not in t1!)
-    // FIXME: support tainted dest.
-    if (t1)
-    {
-        fprintf(stderr, "ERROR: no support for tainted store destinations yet.\n");
-    }
-
     // The effective address is obtained by adding register rs1 to
     // the sign-extended 12-bit offset.
 
@@ -169,40 +246,15 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
     // NOTE: we cd combine the concatenation and sign extension, but really micro-opt
     int64_t imm =  (((int64_t)imm0_11) << 52) >> 52;
 
-    //FIXME: need to have tainted pointer 
-    //FIXME: use addi logic to propagate taint!
-    uint64_t vaddr = vals.v1 + imm;
+    static enum LOAD_TYPE to_store_type[] = {
+        [INSTR32_F3_SB] = STORE_SB,
+        [INSTR32_F3_SH] = STORE_SH,
+        [INSTR32_F3_SW] = STORE_SW,
+        [INSTR32_F3_SD] = STORE_SD,
+    };
+    enum STORE_TYPE st = to_store_type[f3];
 
-    // adress translation
-    // FIXME: does this work or shd we also add logic in mem callback?
-    qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-    uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
-    uint64_t ram_addr = 0;
-    if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
-    {
-        // non-ram location
-        _DEBUG("Propagate store[v=%" PRIx64 ", p=%" PRIx64 "]: to [non-RAM] ; t= %" PRIx64 " not written\n", vaddr, paddr, t2);
-    }
-    else
-    {
-        // truncate the taint when writing
-        switch (f3)
-        {
-            case INSTR32_F3_SB:
-                *(uint8_t*)(shadow_mem + ram_addr) = t2;
-                break;
-            case INSTR32_F3_SH:
-                *(uint16_t*)(shadow_mem + ram_addr) = t2;
-                break;
-            case INSTR32_F3_SW:
-                *(uint32_t*)(shadow_mem + ram_addr) = t2;
-                break;
-            case INSTR32_F3_SD:
-                *(uint64_t*)(shadow_mem + ram_addr) = t2;
-                break;
-        }
-        _DEBUG("Propagate store[v=%" PRIx64 ", p=%" PRIx64 "]: t[%" PRIx64 "] = %" PRIx64 "\n", vaddr, paddr, ram_addr, t2);
-    }
+    propagate_taint_store_impl(vcpu_idx, vals.v1, vals.v2, imm, t1, t2, st);
 }
 
 
@@ -375,7 +427,7 @@ static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // Acceptable precision is important bc "mov rd,rs" is just an alias for "addi rd,rs,0"
-    uint64_t v1 = get_one_reg_value(vcpu_idx, v1);
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
     uint64_t imm = (((int64_t)imm0_11) << 52) >> 52;
     
     _DEBUG("Propagate ADDI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
@@ -413,23 +465,6 @@ static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
 
 }
-
-static void propagate_taint_SUBI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
-{
-    uint64_t v1 = get_one_reg_value(vcpu_idx, v1);
-    uint64_t imm = (((int64_t)imm0_11) << 52) >> 52;
-    
-    uint64_t t1 = shadow_regs[rs1];
-    // rd = r1 + (-imm)
-    uint64_t tout = propagate_taint__add(v1, -imm, t1, 0);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SUBI(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", v1, imm, rd);
-    _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rd, tout);
-
-}
-
 
 
 // AND and OR
@@ -1131,7 +1166,8 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
         }
         case INSTR32_F3_SLLI__:
         {
-            if (f7 == INSTR32_F7_SLLI)
+            uint32_t f6 = f7 >> 1;
+            if (f6 == INSTR32_F6_SLLI)
             {
                 propagate_taint_SLLI(vcpu_idx, rd, rs1, shamt);
             }
@@ -1143,11 +1179,12 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
         }
         case INSTR32_F3_SRLI__SRAI:
         {
-            if (f7 == INSTR32_F7_SRLI)
+            uint32_t f6 = f7 >> 1;
+            if (f6 == INSTR32_F6_SRLI)
             {
                 propagate_taint_SRLI(vcpu_idx, rd, rs1, shamt);
             }
-            else if (f7 == INSTR32_F7_SRAI)
+            else if (f6 == INSTR32_F6_SRAI)
             {
                 propagate_taint_SRAI(vcpu_idx, rd, rs1, shamt);
             }
@@ -1176,8 +1213,6 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint8_t rs2 = INSTR32_RS2_GET(instr);
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
     if (rd == 0)
     {
@@ -1367,29 +1402,220 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
     }
 }
 
-
-
 /***
- * Opcode dispatch (compressed instructions)
+ * Compressed instructions
  ***/
 
-static void propagate_taint16(unsigned int vcpu_idx, uint32_t instr)
+
+static void propagate_taint_CADDI4SPN(unsigned int vcpu_idx, uint16_t instr)
+{
+    uint8_t rdc = INSTR16_CIW_RDC_GET(instr);
+    uint8_t rd = REG_OF_COMPRESSED(rdc);
+
+    uint8_t nzuimm_5_4 = (instr >> 11) & MASK(2); 
+    uint8_t nzuimm_9_6 = (instr >> 7) & MASK(4);
+    uint8_t nzuimm_2 = (instr >> 6) & 1; 
+    uint8_t nzuimm_3 = (instr >> 5) & 1;
+
+    // zero extended non zero immediate
+    uint16_t nzuimm = 
+        (nzuimm_2 << 2) |
+        (nzuimm_3 << 3) |
+        (nzuimm_5_4 << 4) |
+        (nzuimm_9_6 << 6) ;
+    
+    #ifndef NDEBUG
+    if (nzuimm == 0)
+    {
+        fprintf(stderr, "ADDI4SPN expects nonzero immediate. Instr = %" PRIx16 "\n", instr);
+        exit(1);
+    }
+    #endif
+    // decodes to
+    // addi rd, x2, nzuimm
+    uint64_t v1 = get_one_reg_value(vcpu_idx, 2);
+    uint64_t t1 = shadow_regs[2];
+
+    uint64_t tout = propagate_taint__add(v1, nzuimm, t1, 0);
+    
+    shadow_regs[rd] = tout;
+}
+
+
+static void propagate_taint_CLW(unsigned int vcpu_idx, uint16_t instr)
+{
+    uint8_t rdc = INSTR16_CL_RDC_GET(instr);
+    uint8_t rd = REG_OF_COMPRESSED(rdc);
+
+    uint8_t rs1c = INSTR16_CL_RS1C_GET(instr);
+    uint8_t rs1 = REG_OF_COMPRESSED(rs1c);
+
+
+    // zero-extended offset
+    uint8_t offset5_3 = (instr >> 10) & MASK(3);
+    uint8_t offset2 = (instr >> 6) & 1;
+    uint8_t offset6 = (instr >> 5) & 1;
+    uint8_t offset =
+        (offset2 << 2) |
+        (offset5_3 << 3) |
+        (offset6 << 6);
+
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+
+    propagate_taint_load_impl(vcpu_idx, rd, v1, offset, t1, LOAD_LW);
+}
+
+static void propagate_taint_CLD(unsigned int vcpu_idx, uint16_t instr)
+{
+    uint8_t rdc = INSTR16_CL_RDC_GET(instr);
+    uint8_t rd = REG_OF_COMPRESSED(rdc);
+
+    uint8_t rs1c = INSTR16_CL_RS1C_GET(instr);
+    uint8_t rs1 = REG_OF_COMPRESSED(rs1c);
+
+
+    // zero-extended offset
+    uint8_t offset5_3 = (instr >> 10) & MASK(3);
+    uint8_t offset7_6 = (instr >> 5) & 2;
+    uint8_t offset =
+        (offset5_3 << 3) |
+        (offset7_6 << 6);
+
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t v1 = get_one_reg_value(vcpu_idx, rs1);
+
+    propagate_taint_load_impl(vcpu_idx, rd, v1, offset, t1, LOAD_LD);
+}
+
+static void propagate_taint_CSW(unsigned int vcpu_idx, uint16_t instr)
+{
+    uint8_t rs1c = INSTR16_CS_RS1C_GET(instr);
+    uint8_t rs1 = REG_OF_COMPRESSED(rs1c);
+
+    uint8_t rs2c = INSTR16_CS_RS2C_GET(instr);
+    uint8_t rs2 = REG_OF_COMPRESSED(rs2c);
+
+
+    // zero-extended offset
+    uint8_t offset5_3 = (instr >> 10) & MASK(3);
+    uint8_t offset2 = (instr >> 6) & 1;
+    uint8_t offset6 = (instr >> 5) & 1;
+    uint8_t offset =
+        (offset2 << 2) |
+        (offset5_3 << 3) |
+        (offset6 << 6);
+
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    propagate_taint_store_impl(vcpu_idx, vals.v1, vals.v2, offset, t1, t2, STORE_SW);
+}
+
+static void propagate_taint_CSD(unsigned int vcpu_idx, uint16_t instr)
+{
+    uint8_t rs1c = INSTR16_CS_RS1C_GET(instr);
+    uint8_t rs1 = REG_OF_COMPRESSED(rs1c);
+
+    uint8_t rs2c = INSTR16_CS_RS2C_GET(instr);
+    uint8_t rs2 = REG_OF_COMPRESSED(rs2c);
+
+
+    // zero-extended offset
+    uint8_t offset5_3 = (instr >> 10) & MASK(3);
+    uint8_t offset7_6 = (instr >> 5) & 2;
+    uint8_t offset =
+        (offset5_3 << 3) |
+        (offset7_6 << 6);
+
+    uint64_t t1 = shadow_regs[rs1];
+    uint64_t t2 = shadow_regs[rs2];
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    propagate_taint_store_impl(vcpu_idx, vals.v1, vals.v2, offset, t1, t2, STORE_SD);
+}
+
+/* opcode dispatch */
+static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
 {
     // the lsb is NOT 0b11 for all 16b instructions
-    uint8_t lo = instr & 0b11;
+    uint8_t lo = instr & MASK(2);
     assert(lo != 0b11);
 
-    uint16_t f6_f2_op = instr & (INSTR16_FUNCT6_MASK | INSTR16_FUNCT2_MASK | INSTR16_OP_MASK);
-    switch (f6_f2_op)
+    uint8_t opcode = INSTR16_OPCODE_GET(instr);
+    switch (opcode)
     {
-    case INSTR16_OPF2F6_CAND:
+    case INSTR16_RV64_OPCODE_ADDI4SPN:
     {
+        propagate_taint_CADDI4SPN(vcpu_idx, instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE_FLD:
+    {
+        // FIXME: floating point not supported
+        break;
+    }
+    case INSTR16_RV64_OPCODE_LW:
+    {
+        propagate_taint_CLW(vcpu_idx, instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE_LD:
+    {
+        propagate_taint_CLD(vcpu_idx, instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE__RESERVED:
+    {
+        fprintf(stderr, "Unexpected reserved instr16: %" PRIx16 "\n", instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE_FSD:
+    {
+        // FIXME: floating point not supported
+        break;
+    }
+    case INSTR16_RV64_OPCODE_SW:
+    {
+        propagate_taint_CSW(vcpu_idx, instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE_SD:
+    {
+        propagate_taint_CSD(vcpu_idx, instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE_ADDI:
+    case INSTR16_RV64_OPCODE_ADDIW:
+    {
+        // FIXME: not supported
+        // can prob have common impl w/ additional param
+        fprintf(stderr, "CADDI/CADD not supported\n");
+        break;
 
+    }
+    case INSTR16_RV64_OPCODE_LI:
+    case INSTR16_RV64_OPCODE_LUI_ADDI16SP:
+    case INSTR16_RV64_OPCODE_MISC_ALU:
+    case INSTR16_RV64_OPCODE_J:
+    case INSTR16_RV64_OPCODE_BEQZ:
+    case INSTR16_RV64_OPCODE_BNEZ:
+    case INSTR16_RV64_OPCODE_SLLI:
+    case INSTR16_RV64_OPCODE_FLDSP:
+    case INSTR16_RV64_OPCODE_LWSP:
+    case INSTR16_RV64_OPCODE_LDSP:
+    case INSTR16_RV64_OPCODE_JALR_MV_ADD:
+    case INSTR16_RV64_OPCODE_FSDSP:
+    case INSTR16_RV64_OPCODE_SWSP:
+    case INSTR16_RV64_OPCODE_SDSP:
+    {
+        fprintf(stderr, "Unsupported compressed operation: %" PRIx8 "\n", opcode);
         break;
     }
     default:
     {
-        fprintf(stderr, "Unknown opcode for instr16: %" PRIx32 "\n", instr);
+        fprintf(stderr, "Unknown opcode for instr16: %" PRIx16 "\n", instr);
         break;
     }
     }
@@ -1405,7 +1631,7 @@ void propagate_taint(unsigned int vcpu_idx, uint32_t instr_size, uint32_t instr)
     switch (instr_size)
     {
     case 16:
-        propagate_taint16(vcpu_idx, instr);
+        propagate_taint16(vcpu_idx, (uint16_t)instr);
         break;
     case 32:
         propagate_taint32(vcpu_idx, instr);

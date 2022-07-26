@@ -129,9 +129,9 @@ enum {
 };
 
 enum {
-    INSTR32_F7_SLLI = 0b0000000,
-    INSTR32_F7_SRLI = 0b0000000,
-    INSTR32_F7_SRAI = 0b0100000,
+    INSTR32_F6_SLLI = 0b000000,
+    INSTR32_F6_SRLI = 0b000000,
+    INSTR32_F6_SRAI = 0b010000,
 };
 
 
@@ -181,8 +181,59 @@ enum {
 // see https://en.wikichip.org/wiki/risc-v/registers
 #define REG_OF_COMPRESSED(x) ((uint8_t)x + 8)
 
-#define INSTR16_OP_MASK MASK(2)
-#define INSTR16_FUNCT6_MASK (MASK(6) << 10)
-#define INSTR16_FUNCT2_MASK (MASK(2) << 5)
 
-#define INSTR16_OPF2F6_CAND ((0b01) | (0b11 << 5) | (0b100011 << 10))
+#define INSTR16_CIW_RDC_GET(instr) ((instr >>  2) & MASK(3))
+#define INSTR16_CIW_IMM_GET(instr) ((instr >>  5) & MASK(8))
+
+#define INSTR16_CIW_RDC_GET(instr) ((instr >>  2) & MASK(3))
+#define INSTR16_CIW_IMM_LO_GET(instr) ((instr >>  5) & MASK(2))
+#define INSTR16_CIW_IMM_HI_GET(instr) ((instr >>  10) & MASK(3))
+
+
+#define INSTR16_CL_RDC_GET(instr) ((instr >>  2) & MASK(3))
+#define INSTR16_CL_RS1C_GET(instr) ((instr >>  7) & MASK(3))
+
+#define INSTR16_CS_RS1C_GET(instr) ((instr >>  7) & MASK(3))
+#define INSTR16_CS_RS2C_GET(instr) ((instr >>  2) & MASK(3))
+
+
+/** Opcodes for compressed 16 bits instructions **/
+
+// 2 levels of opcodes: inst[1:0] and inst[15:13]
+
+#define INSTR16_OPCODE_GET_HI(instr) ((instr >> 13) & MASK(3))
+#define INSTR16_OPCODE_GET_LO(instr) (instr & MASK(2))
+
+// instructions are grouped by LO bits, concatenate as [LO ; HI]
+#define INSTR16_OPCODE_GET(instr) ((INSTR16_OPCODE_GET_LO(instr) << 3) | INSTR16_OPCODE_GET_HI(instr))
+
+// instructions differ between RV32 and RV64
+enum {
+    INSTR16_RV64_OPCODE_ADDI4SPN     = 0b00000,
+    INSTR16_RV64_OPCODE_FLD,
+    INSTR16_RV64_OPCODE_LW,
+    INSTR16_RV64_OPCODE_LD,
+    INSTR16_RV64_OPCODE__RESERVED,
+    INSTR16_RV64_OPCODE_FSD,
+    INSTR16_RV64_OPCODE_SW,
+    INSTR16_RV64_OPCODE_SD,
+    INSTR16_RV64_OPCODE_ADDI,
+    INSTR16_RV64_OPCODE_ADDIW,
+    INSTR16_RV64_OPCODE_LI,
+    INSTR16_RV64_OPCODE_LUI_ADDI16SP,
+    INSTR16_RV64_OPCODE_MISC_ALU, // 01100
+    INSTR16_RV64_OPCODE_J,
+    INSTR16_RV64_OPCODE_BEQZ,
+    INSTR16_RV64_OPCODE_BNEZ,
+    INSTR16_RV64_OPCODE_SLLI,
+    INSTR16_RV64_OPCODE_FLDSP,
+    INSTR16_RV64_OPCODE_LWSP,
+    INSTR16_RV64_OPCODE_LDSP,
+    INSTR16_RV64_OPCODE_JALR_MV_ADD,
+    INSTR16_RV64_OPCODE_FSDSP,
+    INSTR16_RV64_OPCODE_SWSP,
+    INSTR16_RV64_OPCODE_SDSP,
+};
+
+
+
