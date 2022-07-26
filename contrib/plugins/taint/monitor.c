@@ -189,7 +189,7 @@ static int doGetTaintReg(uint8_t regid)
 
 
     // key
-    char const taint[] = "taint";
+    char const taint[] = "t64";
     msgpack_pack_str(&pk, sizeof(taint) - 1);
     msgpack_pack_str_body(&pk, taint, sizeof(taint) - 1); 
     // Value
