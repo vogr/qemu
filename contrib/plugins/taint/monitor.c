@@ -1,5 +1,6 @@
 #include "monitor.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,10 +11,46 @@
 
 #include <msgpack.h>
 
+#include "params.h"
+
+// see msgpack wiki: https://github.com/msgpack/msgpack-c/wiki/v2_0_c_overview
 
 static msgpack_unpacker unp = {0};
+
+static msgpack_sbuffer packing_sbuf = {0};
+static msgpack_packer pk = {0};
+
+
+
 static int peersock = -1;
 static uint64_t cmd_counter = 0;
+
+// helper function to make sure the sbuf is large enough before
+// requesting a copy (and in particular outside the critical section)
+static int sbuf_reserve_len(msgpack_sbuffer * sbuf, size_t len)
+{
+        if(sbuf->alloc - sbuf->size < len) {
+        void* tmp;
+        size_t nsize = (sbuf->alloc) ?
+                sbuf->alloc * 2 : MSGPACK_SBUFFER_INIT_SIZE;
+
+        while(nsize < sbuf->size + len) {
+            size_t tmp_nsize = nsize * 2;
+            if (tmp_nsize <= nsize) {
+                nsize = sbuf->size + len;
+                break;
+            }
+            nsize = tmp_nsize;
+        }
+
+        tmp = realloc(sbuf->data, nsize);
+        if(!tmp) { return -1; }
+
+        sbuf->data = (char*)tmp;
+        sbuf->alloc = nsize;
+    }
+    return 0;
+}
 
 
 static int sendall(int fd, size_t size, char * buf)
@@ -33,12 +70,61 @@ static int sendall(int fd, size_t size, char * buf)
     return 0;
 }
 
-static int send_ok(uint64_t counter)
+static int send_ok(void)
 {
-    msgpack_sbuffer sbuf;
-    msgpack_sbuffer_init(&sbuf);
-    msgpack_packer pk;
-    msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
+    // Empty buffer
+    msgpack_sbuffer_clear(&packing_sbuf);
+    
+    // Fill buffer
+    msgpack_pack_map(&pk, 1); // 1 pair
+
+    // key
+    char const cmd[] = "cmd";
+    msgpack_pack_str(&pk, sizeof(cmd) - 1);
+    msgpack_pack_str_body(&pk, cmd, sizeof(cmd) - 1); 
+    // value
+    char const ok[] = "ok";
+    msgpack_pack_str(&pk, sizeof(ok) - 1);
+    msgpack_pack_str_body(&pk, ok, sizeof(ok) - 1);
+
+    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
+}
+
+
+static int msgpack_init(void)
+{
+    if(! msgpack_unpacker_init(&unp, MSGPACK_UNPACKER_INIT_BUFFER_SIZE))
+    {
+        fprintf(stderr, "MsgPack: Error on unpacker init.");
+        exit(1);
+    }
+
+    msgpack_packer_init(&pk, &packing_sbuf, msgpack_sbuffer_write);
+
+    return 0;
+}
+
+static int doTaintRamRange(uint64_t start, uint64_t end, uint8_t t)
+{
+    fprintf(stderr, "doTaintPhysRange(%lx, %lx, %d)\n", start, end, t);
+    cmd_counter++;
+
+    memset(shadow_mem + start, t, end - start);
+
+    send_ok();
+
+    return 0;
+}
+
+static int doGetTaintRamRange(uint64_t start, uint64_t end)
+{
+    fprintf(stderr, "doGetTaintPhysRange(%lx, %lx)\n", start, end);
+    cmd_counter++;
+
+    // Empty buffer
+    msgpack_sbuffer_clear(&packing_sbuf);
+
+    // Fill buffer
     msgpack_pack_map(&pk, 2); // 2 pairs
 
     // key
@@ -52,44 +138,67 @@ static int send_ok(uint64_t counter)
 
 
     // key
-    char const ctr[] = "ctr";
-    msgpack_pack_str(&pk, sizeof(ctr) - 1);
-    msgpack_pack_str_body(&pk, ctr, sizeof(ctr) - 1); 
+    char const taint[] = "taint";
+    msgpack_pack_str(&pk, sizeof(taint) - 1);
+    msgpack_pack_str_body(&pk, taint, sizeof(taint) - 1); 
+    // Value
+    msgpack_pack_bin(&pk, end - start);
+    msgpack_pack_bin_body(&pk, shadow_mem + start, end - start);
+
+    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
+}
+
+static int doTaintReg(uint8_t regid, uint64_t treg)
+{
+    fprintf(stderr, "doTaintReg(%" PRIu8 ", %" PRIx64 ")\n", regid, treg);
+    cmd_counter++;
+
+
+    // FIXME: locking! Or really? Could also say:
+    // accessing during execution is UB
+    shadow_regs[regid] = treg;
+
+    return send_ok();
+}
+
+static int doGetTaintReg(uint8_t regid)
+{
+    fprintf(stderr, "doGetTaintReg(%" PRIu8 ")\n", regid);
+    cmd_counter++;
+
+
+    // FIXME: locking! Or really? Could also say:
+    // accessing during execution is UB
+    uint64_t t = shadow_regs[regid];
+
+
+    // Empty buffer
+    msgpack_sbuffer_clear(&packing_sbuf);
+
+    // Fill buffer
+    msgpack_pack_map(&pk, 2); // 2 pairs
+
+    // key
+    char const cmd[] = "cmd";
+    msgpack_pack_str(&pk, sizeof(cmd) - 1);
+    msgpack_pack_str_body(&pk, cmd, sizeof(cmd) - 1); 
     // value
-    msgpack_pack_uint64(&pk, counter);
+    char const ok[] = "ok";
+    msgpack_pack_str(&pk, sizeof(ok) - 1);
+    msgpack_pack_str_body(&pk, ok, sizeof(ok) - 1);
 
-    return sendall(peersock, sbuf.size, sbuf.data);
+
+    // key
+    char const taint[] = "taint";
+    msgpack_pack_str(&pk, sizeof(taint) - 1);
+    msgpack_pack_str_body(&pk, taint, sizeof(taint) - 1); 
+    // Value
+    msgpack_pack_bin(&pk, 8);
+    msgpack_pack_bin_body(&pk, &t, 8);
+
+    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
+
 }
-
-
-static int unpacker_init(void)
-{
-    if(! msgpack_unpacker_init(&unp, MSGPACK_UNPACKER_INIT_BUFFER_SIZE))
-    {
-        fprintf(stderr, "MsgPack: Error on unpacker init.");
-        exit(1);
-    }
-
-    return 0;
-}
-
-static int doTaintPhysRange(uint64_t start, uint64_t end, uint8_t t)
-{
-    fprintf(stderr, "doTaintPhysRange(%lx, %lx, %d)\n", start, end, t);
-    send_ok(cmd_counter);
-    cmd_counter++;
-    return 0;
-}
-
-
-static int doTaintVirtRange(uint64_t start, uint64_t end, uint8_t vcpu, uint8_t t)
-{
-    fprintf(stderr, "doTaintVirtRange(%lx, %lx, %x, %x)\n", start, end, vcpu, t);
-    send_ok(cmd_counter);
-    cmd_counter++;
-    return 0;
-}
-
 
 #define CMD_CMP(cmd, str) \
     ((sizeof(str) - 1 == cmd.size) && ((memcmp(cmd.ptr, str, sizeof(str) - 1) == 0)))
@@ -110,8 +219,9 @@ static int taintmon_dispatcher(msgpack_object obj)
     uint64_t start = 0;
     uint64_t end = 0;
     uint8_t vcpu = 0;
-    uint8_t t = -1;
-
+    uint8_t reg = 0;
+    uint8_t t8 = -1;
+    uint64_t t64 = 0;
 
     for (size_t i = 0 ; i < map.size ; i++)
     {
@@ -143,10 +253,23 @@ static int taintmon_dispatcher(msgpack_object obj)
             assert(pair.val.type == MSGPACK_OBJECT_POSITIVE_INTEGER);
             vcpu = pair.val.via.u64;
         }
-        else if(CMD_CMP(pair.key.via.str, "t"))
+        else if(CMD_CMP(pair.key.via.str, "reg"))
         {
             assert(pair.val.type == MSGPACK_OBJECT_POSITIVE_INTEGER);
-            t = pair.val.via.u64;
+            reg = pair.val.via.u64;
+        }
+        else if(CMD_CMP(pair.key.via.str, "t8"))
+        {
+            assert(pair.val.type == MSGPACK_OBJECT_BIN);
+            assert(pair.val.via.bin.size == 1);
+            memcpy(&t8, pair.val.via.bin.ptr, 1);
+        }
+        else if(CMD_CMP(pair.key.via.str, "t64"))
+        {
+            assert(pair.val.type == MSGPACK_OBJECT_BIN);
+            assert(pair.val.via.bin.size == 8);
+            memcpy(&t64, pair.val.via.bin.ptr, 8);
+
         }
         else
         {
@@ -156,13 +279,21 @@ static int taintmon_dispatcher(msgpack_object obj)
     
     // Now dispatch
     int ret;
-    if (CMD_CMP(cmd, "setall-taint-phys-range"))
+    if (CMD_CMP(cmd, "set-taint-ram-range"))
     {
-        ret = doTaintPhysRange(start, end, t);
+        ret = doTaintRamRange(start, end, t8);
     }
-    else if (CMD_CMP(cmd, "setall-taint-virt-range"))
+    else if (CMD_CMP(cmd, "get-taint-ram-range"))
     {
-        ret = doTaintVirtRange(start, end, vcpu, t);
+        ret = doGetTaintRamRange(start, end);
+    }
+    else if (CMD_CMP(cmd, "set-taint-reg"))
+    {
+        ret = doTaintReg(reg, t64);
+    }
+    else if (CMD_CMP(cmd, "get-taint-reg"))
+    {
+        ret = doGetTaintReg(reg);
     }
     else
     {
@@ -189,32 +320,33 @@ static int process_recvd_block(void)
     // unpacked can be reused from one parse to the next: 
     // msgpack_unpacker_next does the destruction
     static msgpack_unpacked und = {0};
-    msgpack_unpack_return ret = 0;
-    ret = msgpack_unpacker_next(&unp, &und);
 
-    switch(ret) {
-        case MSGPACK_UNPACK_SUCCESS:
-        {
-            /* Extract msgpack_object and use it. */
-            taintmon_dispatcher(und.data);
-            break;
+    while(1)
+    {
+        msgpack_unpack_return ret = msgpack_unpacker_next(&unp, &und);
+        switch(ret) {
+            case MSGPACK_UNPACK_SUCCESS:
+            {
+                /* Extract msgpack_object and use it. */
+                taintmon_dispatcher(und.data);
+                break;
+            }
+            case MSGPACK_UNPACK_CONTINUE:
+                /* cheking capacity, reserve buffer, copy additional data to the buffer, */
+                /* notify consumed buffer size, then call msgpack_unpacker_next(&unp, &und) again */
+                return 0;
+            case MSGPACK_UNPACK_PARSE_ERROR:
+                /* Error process */
+                fprintf(stderr, "MsgPack parse error!\n");
+                return 1;
+            case MSGPACK_UNPACK_EXTRA_BYTES:
+            case MSGPACK_UNPACK_NOMEM_ERROR:
+                // these two should never be returned by the *_next API
+                fprintf(stderr, "Error when unpacking request: unexpected msgpack error code.\n");
+                exit(1);
         }
-        case MSGPACK_UNPACK_CONTINUE:
-            /* cheking capacity, reserve buffer, copy additional data to the buffer, */
-            /* notify consumed buffer size, then call msgpack_unpacker_next(&unp, &und) again */
-            break;
-        case MSGPACK_UNPACK_PARSE_ERROR:
-            /* Error process */
-            fprintf(stderr, "MsgPack parse error!\n");
-            break;
-        case MSGPACK_UNPACK_EXTRA_BYTES:
-        case MSGPACK_UNPACK_NOMEM_ERROR:
-            // these two should never be returned by the *_next API
-            fprintf(stderr, "Error when unpacking request: unexpected msgpack error code.\n");
-            exit(1);
     }
 
-    return 0;
 }
 
 
@@ -262,7 +394,7 @@ void taint_monitor_loop(char const * taintsock_path)
     while(1)
     {
         /* Reset msgpack's unpacker */
-        unpacker_init();
+        msgpack_init();
 
 
         struct sockaddr_un peer_addr = {0};
@@ -310,6 +442,10 @@ void taint_monitor_loop(char const * taintsock_path)
                 break;
             }
 
+            // as soon as we receive data, stop the taint propagation
+            pthread_mutex_lock(&shadow_lock);
+
+
             fprintf(stderr, "Received %zu bytes\n", (size_t)nread);
             for(ssize_t i = 0; i < nread; i++)
             {
@@ -323,6 +459,10 @@ void taint_monitor_loop(char const * taintsock_path)
 
 
             process_recvd_block();
+
+            // resume taint propagation
+            pthread_mutex_unlock(&shadow_lock);
+
         }
 
         msgpack_unpacker_destroy(&unp);
