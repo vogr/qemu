@@ -18,10 +18,6 @@
 // that the host and target have the same endianess. For our purposes, all our
 // platforms are little-endian (ie x86 host and RISCV target).
 
-// FIXME: your shadow mem addressing is wrong!!! Addressing with paddr but paddr doesn't start at zero !
-// probably needs to do paddr - 0x8000000
-
-
 
 
 
@@ -298,111 +294,23 @@ static uint64_t propagate_taint_op__lazy(uint64_t t1, uint64_t t2)
 static uint64_t propagate_taint__add(uint64_t v1, uint64_t v2, uint64_t t1, uint64_t t2)
 {
     /*
-        The taint propagates with the carry, ie:
-             1  1  0  1  0  0  0  0  1 0
-        +    0  1  0  1  1  1 _1_ 1  1 0
-        -------------------------------
-          1  0  0  1 _1__0__0__0_ 0  0 0
-        
-        The taint propagates to the corresponding bit, and to bits
-        on the left as long as there is a carry.
-
-
-        Work tainted bit by tainted bit; look at the adder as a
-        succession of bitwise adders.
-
-        Bitwise adder: three inputs (v1, v2, cin), two outputs (s, cout),
-        each can be tainted.
-
-        If only one input tainted, the taint outputs depend on the values
-        of the two other inputs:
-            0 0  => ts = 1, tcout = 0 (tainted bit value only affects the output bit, carry=0 always)
-            0 1  => ts = 1, tcout = 1 (tainted bit value affects the output bit AND carry)
-            1 1  => ts = 1, tcout = 0 (tainted bit value only affects the output bit, carry=1 always)
-
-        If >1 inputs are tainted, s and cout are tainted.
-
-
-
-
-        In the case where the occurence of a carry depends on the
-        value of the tainted bit, we have to consider both cases ;
-        however since there are strictly more carries in the t=1 case,
-        we can restrict the analysis to this case.
-    
+      Taint using the properties of ADD identified in the CellIFT paper.
     */
 
     uint64_t v1_with_ones = v1 | t1;
     uint64_t v2_with_ones = v2 | t2;
 
-    uint64_t tin = t1 | t2;
-
-
+    uint64_t v1_with_zeros = v1 & (~t1);
+    uint64_t v2_with_zeros = v2 & (~t2);
 
     // Taint:
     // 1. taint directly from input bit to the corresponding output bit
     // 2. taint from carries
-    uint64_t tout = tin;
 
-    // We will build the "carry mask" ie a mask indicating every position
-    // where a carry can happen. A carry sequence starts at (1,1) and
-    // ends at (0,0) or (1,1) (the former case starting a new carry sequence)
+    uint64_t sum_with_ones = v1_with_ones + v2_with_ones;
+    uint64_t sum_with_zeros = v1_with_zeros + v2_with_zeros;
 
-    // In the presence of taint, we need to consider the largest possible
-    // carry sequences: from (1,1) (tainted or untainted) to (0,0)/(1,1)
-    // untainted (else a bit could be flipped to extend the carry sequence)
-    // ie the sequence continues as long as we have v1 ^ v2 | taint
-
-    // To build this mask, we can look at
-    //       v1 & v2 (= starting positions of the carry sequences)
-    //       ~ (v1 ^ v2) (=potential ending positions of the carry sequences)
-    // ie we look at the sequences of the form
-    // ([0] or [1]) ([0] or [1])* [1]
-    // ([0] or [1]) ([1]    [0])  [1]
-    uint64_t A = v1_with_ones & v2_with_ones;
-    uint64_t X = (v1 ^ v2) | tin; ;
-
-    // start of a taint propagation (in carry sequence) if
-    //    t1 = 1 and v2 = 0
-    //    t2 = 1 and v1 = 0
-    //    t1 = 1 and t2 = 1
-    // indeed: in the carry sequence we know that cin=1, we want to have tcout=1
-    // this happens iff one input tanited and (v,cin)=(0,1) or both inputs tainted 
-    uint64_t taint_starts = (t1 & (~v2)) | (t2 & (~v1)) | (t1 & t2);
-
-    while (A)
-    {
-        // Build "carry mask"
-
-        // get lowest 1 in A (start of carry sequence)
-        uint64_t A_low_mask = (A ^ (A - 1));
-        // uint64_t A_low = A_low_mask & A;
-
-        // get lowest 0 above start in X (end of sequence)
-        uint64_t X_above_start = X | A_low_mask;
-        uint64_t X_low_mask = (X_above_start + 1) ^ X_above_start;
-        // uint64_t X_low = X_low_mask & X_above_start;
-
-        // the carry sequence covers the range [A_low, X_low]
-        // get the corresponding mask
-        uint64_t carry_mask = X_low_mask ^ ((int64_t)A_low_mask >> 1);
-
-
-        // Propagate taint in the carry mask: everything in the carry mask
-        // to the left of the lowest taint bit carried in the mask is tainted
-        
-        // find the lowest tainted bit in the mask
-        uint64_t tin_in_carry_mask = taint_starts & carry_mask;
-        uint64_t tlow_mask = (tin_in_carry_mask - 1) ^  tin_in_carry_mask;
-        uint64_t taint_from_carries = carry_mask & (~ tlow_mask);
-
-        // Write this carry sequence's taint to output
-        tout |= taint_from_carries;
-
-        // look for next 1 in A above the carry sequence, ie above X_low
-        // but including the prvious endpoint (potentially (1,1))
-        A = A & (~ ((int64_t)X_low_mask >> 1));
-    }
+    uint64_t tout = t1 | t2 | (sum_with_ones ^ sum_with_zeros);
 
     return tout;
 }
@@ -443,29 +351,34 @@ static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
 }
 
+
 static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     uint64_t t1 = shadow_regs[rs1];
     uint64_t t2 = shadow_regs[rs2];
 
     struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+    
+    uint64_t v1_with_ones = vals.v1 | t1;
+    uint64_t v2_with_ones = vals.v2 | t2;
 
-    // v1 - v2 = v1 + (~v2 + 1)
+    uint64_t v1_with_zeros = vals.v1 & (~t1);
+    uint64_t v2_with_zeros = vals.v2 & (~t2);
 
-    uint64_t nv2 = ~ vals.v2;
+    // Taint:
+    // 1. taint directly from input bit to the corresponding output bit
+    // 2. taint from carries
 
-    uint64_t t_add2 = propagate_taint__add(nv2, 1, t2, 0);
+    uint64_t diff_zero_ones = v1_with_zeros - v2_with_ones;
+    uint64_t diff_ones_zeros = v1_with_ones - v2_with_zeros;
 
-    uint64_t tout = propagate_taint__add(vals.v1, nv2 + 1, t1, t_add2);
+    uint64_t tout = t1 | t2 | (diff_zero_ones ^ diff_ones_zeros);
 
     shadow_regs[rd] = tout;
 
     _DEBUG("Propagate SUB(%" PRIx64 ",%" PRIx64 ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = %" PRIx64 "  t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rs1, t1, rs2, t2, rd, tout);
-
-
 }
-
 
 // AND and OR
 
