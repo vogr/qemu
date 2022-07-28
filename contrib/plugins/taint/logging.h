@@ -12,4 +12,4 @@
 
 int taint_logging_init(void);
 int taint_logging_stop(void);
-int taint_log(char const * format, ...);
+void taint_log(char const * format, ...);
