@@ -72,10 +72,7 @@ static int sendall(int fd, size_t size, char * buf)
 
 static int send_ok(void)
 {
-    // Empty buffer
-    msgpack_sbuffer_clear(&packing_sbuf);
-    
-    // Fill buffer
+    // Append reply to the buffer
     msgpack_pack_map(&pk, 1); // 1 pair
 
     // key
@@ -87,7 +84,7 @@ static int send_ok(void)
     msgpack_pack_str(&pk, sizeof(ok) - 1);
     msgpack_pack_str_body(&pk, ok, sizeof(ok) - 1);
 
-    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
+    return 0;
 }
 
 
@@ -121,10 +118,7 @@ static int doGetTaintRamRange(uint64_t start, uint64_t end)
     fprintf(stderr, "doGetTaintPhysRange(%lx, %lx)\n", start, end);
     cmd_counter++;
 
-    // Empty buffer
-    msgpack_sbuffer_clear(&packing_sbuf);
-
-    // Fill buffer
+    // Append reply to the buffer
     msgpack_pack_map(&pk, 2); // 2 pairs
 
     // key
@@ -145,7 +139,7 @@ static int doGetTaintRamRange(uint64_t start, uint64_t end)
     msgpack_pack_bin(&pk, end - start);
     msgpack_pack_bin_body(&pk, shadow_mem + start, end - start);
 
-    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
+    return 0;
 }
 
 static int doTaintReg(uint8_t regid, uint64_t treg)
@@ -172,10 +166,7 @@ static int doGetTaintReg(uint8_t regid)
     uint64_t t = shadow_regs[regid];
 
 
-    // Empty buffer
-    msgpack_sbuffer_clear(&packing_sbuf);
-
-    // Fill buffer
+    // Append reply to the buffer
     msgpack_pack_map(&pk, 2); // 2 pairs
 
     // key
@@ -196,23 +187,16 @@ static int doGetTaintReg(uint8_t regid)
     msgpack_pack_bin(&pk, 8);
     msgpack_pack_bin_body(&pk, &t, 8);
 
-    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
-
+    return 0;
 }
 
 #define CMD_CMP(cmd, str) \
     ((sizeof(str) - 1 == cmd.size) && ((memcmp(cmd.ptr, str, sizeof(str) - 1) == 0)))
 
-static int taintmon_dispatcher(msgpack_object obj)
+
+
+static int taintmon_dispatcher(msgpack_object_map map)
 {
-    fprintf(stderr, "Recv object:\n");
-    msgpack_object_print(stderr, obj);
-    fprintf(stderr, "\n");
-
-
-    assert(obj.type == MSGPACK_OBJECT_MAP);
-    msgpack_object_map map = obj.via.map;
-
     // Parse the map into command and arguments
 
     msgpack_object_str cmd = {0};
@@ -297,14 +281,71 @@ static int taintmon_dispatcher(msgpack_object obj)
     }
     else
     {
-        fprintf(stderr, "Warning: skipping request, invalid or inexistant \"cmd\" in \n");
-        msgpack_object_print(stderr, obj);
-        fprintf(stderr, "\n");
-
+        fprintf(stderr, "Warning: skipping request, invalid or inexistant \"cmd\" in command map.\n");
         ret = 1;
     }
 
     return ret;
+}
+
+
+static int taintmon_req_handler(msgpack_object obj)
+{
+    fprintf(stderr, "Recv object:\n");
+    msgpack_object_print(stderr, obj);
+    fprintf(stderr, "\n");
+
+    /*
+     * The serialized object can either be a command (=a key value list), or a list
+     * of commands (list of key value lists)
+     */
+
+    // Empty buffer
+    msgpack_sbuffer_clear(&packing_sbuf);
+
+    if(obj.type == MSGPACK_OBJECT_ARRAY)
+    {
+        msgpack_object_array cmds = obj.via.array;
+
+        // prepare the reply as an array of reply maps
+        msgpack_pack_array(&pk, cmds.size);
+
+        for(size_t icmd = 0 ; icmd < cmds.size ; icmd++)
+        {
+            msgpack_object cmd = cmds.ptr[icmd];
+            assert(cmd.type == MSGPACK_OBJECT_MAP);
+
+            msgpack_object_map cmd_map = cmd.via.map;
+            if(taintmon_dispatcher(cmd_map))
+            {
+                fprintf(stderr, "Error running command:\n");
+                msgpack_object_print(stderr, obj);
+                fprintf(stderr, "\n");
+            }
+        }
+    }
+    else if (obj.type == MSGPACK_OBJECT_MAP)
+    {
+        // no preparation needed for the reply, the reply will
+        // directly contain the (only) reply map
+
+        msgpack_object_map cmd_map = obj.via.map;
+        if(taintmon_dispatcher(cmd_map))
+        {
+            fprintf(stderr, "Error running command:\n");
+            msgpack_object_print(stderr, obj);
+            fprintf(stderr, "\n");
+        }
+    }
+    else
+    {
+        fprintf(stderr, "ERROR: unexpected request wrapping type for ");
+        msgpack_object_print(stderr, obj);
+        fprintf(stderr, "\n");
+        return 1;
+    }
+
+    return sendall(peersock, packing_sbuf.size, packing_sbuf.data);
 }
 
 static int process_recvd_block(void)
@@ -328,7 +369,7 @@ static int process_recvd_block(void)
             case MSGPACK_UNPACK_SUCCESS:
             {
                 /* Extract msgpack_object and use it. */
-                taintmon_dispatcher(und.data);
+                taintmon_req_handler(und.data);
                 break;
             }
             case MSGPACK_UNPACK_CONTINUE:
