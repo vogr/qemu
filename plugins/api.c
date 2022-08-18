@@ -455,6 +455,26 @@ void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int
 #endif
 }
 
+void qemu_plugin_set_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values)
+{
+#if TARGET_RISCV
+    RISCVCPU *rvcpu = RISCV_CPU(pcs);
+    CPURISCVState *env = &rvcpu->env;
+
+    target_ulong * regs = env->gpr;
+    target_ulong * src = (target_ulong*)values;
+
+    for(size_t i = 0 ; i < n_registers ; i++)
+    {
+        int regid = register_ids[i];
+        regs[regid] = src[i];
+    }
+
+#else
+    g_assert_not_reached();
+#endif
+}
+
 /*
  * qemu_plugin_get_hwaddr is more efficient and provides more information,
  * however, it must be issued immediatly after the corresponding TLB query
@@ -486,9 +506,23 @@ int qemu_plugin_paddr_to_ram_addr(uint64_t paddr, uint64_t * ram_addr)
         return 1;
     }
 
-    *ram_addr = memory_region_get_ram_addr(mr) + offset;
+    (*ram_addr) = memory_region_get_ram_addr(mr) + offset;
     return 0;
 }
+
+
+int qemu_plugin_read_at_paddr(uint64_t paddr, void * buf, size_t size)
+{
+    MemTxResult txres = address_space_read(&address_space_memory, paddr, MEMTXATTRS_UNSPECIFIED, buf, size);
+    return txres;
+}
+
+int qemu_plugin_write_at_paddr(uint64_t paddr, void * buf, size_t size)
+{
+    MemTxResult txres = address_space_write(&address_space_memory, paddr, MEMTXATTRS_UNSPECIFIED, buf, size);
+    return txres;
+}
+
 
 /*
  * Plugin output

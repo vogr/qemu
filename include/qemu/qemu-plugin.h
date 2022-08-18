@@ -607,6 +607,18 @@ qemu_cpu_state qemu_plugin_get_cpu(int vcpu_idx);
  */
 void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values);
 
+
+/**
+ * qemu_plugin_set_register_values() - set register values
+ * 
+ * @pcs: cpu state handle, as provided by qemu_plugin_get_cpu()
+ * @n_registers: number of register values to set
+ * @register_ids: n_registers ids of register to set
+ * @values: values to write to the registers
+ */
+void qemu_plugin_set_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values);
+
+
 /**
  * qemu_plugin_vaddr_to_paddr() - translate virtual address to
  * physical address (in guest memory)
@@ -623,6 +635,26 @@ uint64_t qemu_plugin_vaddr_to_paddr(qemu_cpu_state cs, uint64_t vaddr);
  * @vaddr: physical address to translate
  */
 int qemu_plugin_paddr_to_ram_addr(uint64_t paddr, uint64_t * ram_addr);
+
+/**
+ * qemu_plugin_read_at_paddr() - read an array of bytes of guest
+ * memory
+ *
+ * @paddr: physical address to read from
+ * @buf: destination buffer
+ * @size: number of bytes to read
+ */
+int qemu_plugin_read_at_paddr(uint64_t paddr, void * buf, size_t size);
+
+/**
+ * qemu_plugin_write_at_paddr() - read an array of bytes of guest
+ * memory
+ *
+ * @paddr: physical address to write to
+ * @buf: source buffer
+ * @size: number of bytes to write
+ */
+int qemu_plugin_write_at_paddr(uint64_t paddr, void * buf, size_t size);
 
 
 /**

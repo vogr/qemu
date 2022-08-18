@@ -26,6 +26,7 @@
   qemu_plugin_outs;
   qemu_plugin_paddr_to_ram_addr;
   qemu_plugin_path_to_binary;
+  qemu_plugin_read_at_paddr;
   qemu_plugin_register_atexit_cb;
   qemu_plugin_register_flush_cb;
   qemu_plugin_register_vcpu_exit_cb;
@@ -42,6 +43,7 @@
   qemu_plugin_register_vcpu_tb_exec_inline;
   qemu_plugin_register_vcpu_tb_trans_cb;
   qemu_plugin_reset;
+  qemu_plugin_set_register_values;
   qemu_plugin_start_code;
   qemu_plugin_tb_get_insn;
   qemu_plugin_tb_n_insns;
@@ -49,4 +51,5 @@
   qemu_plugin_uninstall;
   qemu_plugin_vaddr_to_paddr;
   qemu_plugin_vcpu_for_each;
+  qemu_plugin_write_at_paddr;
 };
