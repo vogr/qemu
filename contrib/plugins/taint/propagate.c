@@ -1504,7 +1504,7 @@ static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
     {
         // FIXME: not supported
         // can prob have common impl w/ additional param
-        fprintf(stderr, "CADDI/CADD not supported\n");
+        _DEBUG("CADDI/CADD not supported\n");
         break;
 
     }
@@ -1523,7 +1523,7 @@ static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
     case INSTR16_RV64_OPCODE_SWSP:
     case INSTR16_RV64_OPCODE_SDSP:
     {
-        fprintf(stderr, "Unsupported compressed instr opcode: 0x%" PRIx8 "\n", opcode);
+        _DEBUG("TODO: compressed instr with opcode: 0x%" PRIx8 "\n", opcode);
         break;
     }
     default:

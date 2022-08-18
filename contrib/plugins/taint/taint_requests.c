@@ -25,21 +25,81 @@ static int pack_ok(msgpack_packer * pk)
     return 0;
 }
 
-
-static int doTaintRamRange(msgpack_packer * pk, uint64_t start, uint64_t end, uint8_t t)
+struct set_taint_range_params
 {
-    fprintf(stderr, "doTaintPhysRange(%lx, %lx, %d)\n", start, end, t);
+    uint64_t start;
+    uint64_t stop;
+    char t8;
+};
 
-    memset(shadow_mem + start, t, end - start);
+static int parseSetTaintRangeCmd(msgpack_object_array cmd_arr, struct set_taint_range_params * p)
+{
+    if(cmd_arr.size != 4)
+        return 1;
+    
+    msgpack_object p1 = cmd_arr.ptr[1];
+    if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->start = p1.via.u64;
+
+    msgpack_object p2 = cmd_arr.ptr[2];
+    if(p2.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->stop = p2.via.u64;
+
+    msgpack_object p3 = cmd_arr.ptr[3];
+    if(p3.type != MSGPACK_OBJECT_BIN)
+        return 1;
+    msgpack_object_bin t8_bin = p3.via.bin;
+    if (t8_bin.size != 1)
+        return 1;
+    memcpy(&(p->t8), t8_bin.ptr, 1);
+
+    return 0;
+}
+
+static int doTaintRamRange(msgpack_packer * pk, struct set_taint_range_params p)
+{
+
+    fprintf(stderr, "doTaintPhysRange(%lx, %lx, %d)\n", p.start, p.stop, p.t8);
+
+    memset(shadow_mem + p.start, p.t8, p.stop - p.start);
 
     pack_ok(pk);
 
     return 0;
 }
 
-static int doGetTaintRamRange(msgpack_packer * pk, uint64_t start, uint64_t end)
+
+struct get_taint_range_params
 {
-    fprintf(stderr, "doGetTaintPhysRange(%lx, %lx)\n", start, end);
+    uint64_t start;
+    uint64_t stop;
+    char t8;
+};
+
+static int parseGetTaintRangeCmd(msgpack_object_array cmd_arr, struct get_taint_range_params * p)
+{
+    if(cmd_arr.size != 3)
+        return 1;
+    
+    msgpack_object p1 = cmd_arr.ptr[1];
+    if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->start = p1.via.u64;
+
+    msgpack_object p2 = cmd_arr.ptr[2];
+    if(p2.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->stop = p2.via.u64;
+
+    return 0;
+}
+
+
+static int doGetTaintRamRange(msgpack_packer * pk, struct get_taint_range_params p)
+{
+    fprintf(stderr, "doGetTaintPhysRange(%lx, %lx)\n", p.start, p.stop);
 
     // Append reply to the buffer
     msgpack_pack_map(pk, 2); // 2 pairs
@@ -59,32 +119,78 @@ static int doGetTaintRamRange(msgpack_packer * pk, uint64_t start, uint64_t end)
     msgpack_pack_str(pk, sizeof(taint) - 1);
     msgpack_pack_str_body(pk, taint, sizeof(taint) - 1); 
     // Value
-    msgpack_pack_bin(pk, end - start);
-    msgpack_pack_bin_body(pk, shadow_mem + start, end - start);
+    msgpack_pack_bin(pk, p.stop - p.start);
+    msgpack_pack_bin_body(pk, shadow_mem + p.start, p.stop - p.start);
 
     return 0;
 }
 
-static int doTaintReg(msgpack_packer * pk, uint8_t regid, uint64_t treg)
+struct set_taint_reg_params
 {
-    fprintf(stderr, "doTaintReg(%" PRIu8 ", %" PRIx64 ")\n", regid, treg);
+    uint64_t reg;
+    uint64_t t64;
+};
+
+static int parseSetTaintRegCmd(msgpack_object_array cmd_arr, struct set_taint_reg_params * p)
+{
+    if(cmd_arr.size != 3)
+        return 1;
+    
+    msgpack_object p1 = cmd_arr.ptr[1];
+    if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->reg = p1.via.u64;
+
+    msgpack_object p2 = cmd_arr.ptr[2];
+    if(p2.type != MSGPACK_OBJECT_BIN)
+        return 1;
+    msgpack_object_bin t64_bin = p2.via.bin;
+    if(t64_bin.size != 8)
+        return 1;
+    memcpy(&(p->t64), t64_bin.ptr, 8);
+    
+    return 0;
+}
+
+static int doTaintReg(msgpack_packer * pk, struct set_taint_reg_params p)
+{
+    fprintf(stderr, "doTaintReg(%" PRIu64 ", %" PRIx64 ")\n", p.reg, p.t64);
 
     // FIXME: locking! Or really? Could also say:
     // accessing during execution is UB
-    shadow_regs[regid] = treg;
+    shadow_regs[p.reg] = p.t64;
 
     pack_ok(pk);
 
     return 0;
 }
 
-static int doGetTaintReg(msgpack_packer * pk, uint8_t regid)
+struct get_taint_reg_params
 {
-    fprintf(stderr, "doGetTaintReg(%" PRIu8 ")\n", regid);
+    uint64_t reg;
+};
+
+static int parseGetTaintRegCmd(msgpack_object_array cmd_arr, struct get_taint_reg_params * p)
+{
+    if(cmd_arr.size != 2)
+        return 1;
+    
+    msgpack_object p1 = cmd_arr.ptr[1];
+    if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->reg = p1.via.u64;
+
+    return 0;
+}
+
+
+static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
+{
+    fprintf(stderr, "doGetTaintReg(%" PRIu64 ")\n", p.reg);
 
     // FIXME: locking! Or really? Could also say:
     // accessing during execution is UB
-    uint64_t t = shadow_regs[regid];
+    uint64_t t = shadow_regs[p.reg];
 
 
     // Append reply to the buffer
@@ -116,64 +222,19 @@ static int doGetTaintReg(msgpack_packer * pk, uint8_t regid)
 
 
 
-static int taintmon_dispatcher(msgpack_object_map map, msgpack_packer * pk)
+static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk)
 {
     // Parse the map into command and arguments
     // Write the reply to packer pk
 
     msgpack_object_str cmd = {0};
-    uint64_t start = 0;
-    uint64_t end = 0;
-    uint8_t reg = 0;
-    uint8_t t8 = -1;
-    uint64_t t64 = 0;
 
-    for (size_t i = 0 ; i < map.size ; i++)
+    if(cmd_arr.size >= 1)
     {
-        msgpack_object_kv pair = map.ptr[i];
-
-        if (pair.key.type != MSGPACK_OBJECT_STR)
+        msgpack_object param1 = cmd_arr.ptr[0];
+        if (param1.type == MSGPACK_OBJECT_STR)
         {
-            fprintf(stderr, "Skipping invalid key at position %zu\n", i);
-            continue;
-        }
-        
-        if(CMD_CMP(pair.key.via.str, "cmd"))
-        {
-            assert(pair.val.type == MSGPACK_OBJECT_STR);
-            cmd = pair.val.via.str;
-        }
-        else if(CMD_CMP(pair.key.via.str, "start"))
-        {
-            assert(pair.val.type == MSGPACK_OBJECT_POSITIVE_INTEGER);
-            start = pair.val.via.u64;
-        }
-        else if(CMD_CMP(pair.key.via.str, "end"))
-        {
-            assert(pair.val.type == MSGPACK_OBJECT_POSITIVE_INTEGER);
-            end = pair.val.via.u64;
-        }
-        else if(CMD_CMP(pair.key.via.str, "reg"))
-        {
-            assert(pair.val.type == MSGPACK_OBJECT_POSITIVE_INTEGER);
-            reg = pair.val.via.u64;
-        }
-        else if(CMD_CMP(pair.key.via.str, "t8"))
-        {
-            assert(pair.val.type == MSGPACK_OBJECT_BIN);
-            assert(pair.val.via.bin.size == 1);
-            memcpy(&t8, pair.val.via.bin.ptr, 1);
-        }
-        else if(CMD_CMP(pair.key.via.str, "t64"))
-        {
-            assert(pair.val.type == MSGPACK_OBJECT_BIN);
-            assert(pair.val.via.bin.size == 8);
-            memcpy(&t64, pair.val.via.bin.ptr, 8);
-
-        }
-        else
-        {
-            fprintf(stderr, "Skipping unknown key at position %zu: %.*s\n", i, pair.key.via.str.size, pair.key.via.str.ptr);
+            cmd = param1.via.str;
         }
     }
     
@@ -181,19 +242,36 @@ static int taintmon_dispatcher(msgpack_object_map map, msgpack_packer * pk)
     int ret;
     if (CMD_CMP(cmd, "set-taint-ram-range"))
     {
-        ret = doTaintRamRange(pk, start, end, t8);
+        struct set_taint_range_params p = {0};
+        if (parseSetTaintRangeCmd(cmd_arr, &p))
+            ret = 1;
+        else
+            ret = doTaintRamRange(pk, p);
     }
     else if (CMD_CMP(cmd, "get-taint-ram-range"))
     {
-        ret = doGetTaintRamRange(pk, start, end);
+        struct get_taint_range_params p = {0};
+        if (parseGetTaintRangeCmd(cmd_arr, &p))
+            ret = 1;
+        else
+            ret = doGetTaintRamRange(pk, p);
     }
     else if (CMD_CMP(cmd, "set-taint-reg"))
     {
-        ret = doTaintReg(pk, reg, t64);
+        struct set_taint_reg_params p = {0};
+        if (parseSetTaintRegCmd(cmd_arr, &p))
+            ret = 1;
+        else
+            ret = doTaintReg(pk, p);
     }
     else if (CMD_CMP(cmd, "get-taint-reg"))
     {
-        ret = doGetTaintReg(pk, reg);
+
+        struct get_taint_reg_params p = {0};
+        if (parseGetTaintRegCmd(cmd_arr, &p))
+            ret = 1;
+        else
+            ret = doGetTaintReg(pk, p);
     }
     else
     {
@@ -204,6 +282,25 @@ static int taintmon_dispatcher(msgpack_object_map map, msgpack_packer * pk)
     return ret;
 }
 
+static int obj_is_list_of_cmds(msgpack_object obj)
+{
+    // -1: malformed
+    //  0: single command
+    //  1: list of commands
+    if(obj.type != MSGPACK_OBJECT_ARRAY)
+    {
+        return -1;
+    }
+
+    msgpack_object_array outer = obj.via.array;
+    if (outer.size < 1)
+    {
+        return -1;
+    }
+
+    msgpack_object inner = outer.ptr[0];
+    return (inner.type == MSGPACK_OBJECT_ARRAY);
+}
 
 static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
 {
@@ -212,14 +309,15 @@ static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
     fprintf(stderr, "\n");
 
     /*
-     * The serialized object can either be a command (=a key value list), or a list
-     * of commands (list of key value lists)
+     * The serialized object can either be a command (=a list), or a list
+     * of commands (list of lists)
      * 
      * Will pack the reply in the packer (by appending, will not empty the
      * packer if it already contains msgpack objects!)
      */
 
-    if(obj.type == MSGPACK_OBJECT_ARRAY)
+    int is_list_of_cmds = obj_is_list_of_cmds(obj);
+    if(is_list_of_cmds == 1)
     {
         msgpack_object_array cmds = obj.via.array;
 
@@ -229,10 +327,10 @@ static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
         for(size_t icmd = 0 ; icmd < cmds.size ; icmd++)
         {
             msgpack_object cmd = cmds.ptr[icmd];
-            assert(cmd.type == MSGPACK_OBJECT_MAP);
+            assert(cmd.type == MSGPACK_OBJECT_ARRAY);
 
-            msgpack_object_map cmd_map = cmd.via.map;
-            if(taintmon_dispatcher(cmd_map, pk))
+            msgpack_object_array cmd_arr = cmd.via.array;
+            if(taintmon_dispatcher(cmd_arr, pk))
             {
                 fprintf(stderr, "Error running command:\n");
                 msgpack_object_print(stderr, obj);
@@ -240,13 +338,13 @@ static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
             }
         }
     }
-    else if (obj.type == MSGPACK_OBJECT_MAP)
+    else if (is_list_of_cmds == 0)
     {
         // no preparation needed for the reply, the reply will
-        // directly contain the (only) reply map
+        // directly contain the (only) reply array
 
-        msgpack_object_map cmd_map = obj.via.map;
-        if(taintmon_dispatcher(cmd_map, pk))
+        msgpack_object_array cmd_arr = obj.via.array;
+        if(taintmon_dispatcher(cmd_arr, pk))
         {
             fprintf(stderr, "Error running command:\n");
             msgpack_object_print(stderr, obj);
