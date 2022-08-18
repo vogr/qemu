@@ -11,16 +11,10 @@
 static int pack_ok(msgpack_packer * pk)
 {
     // Append reply to the buffer
-    msgpack_pack_map(pk, 1); // 1 pair
+    msgpack_pack_array(pk, 1); // 1 pair
 
-    // key
-    char const cmd[] = "cmd";
-    msgpack_pack_str(pk, sizeof(cmd) - 1);
-    msgpack_pack_str_body(pk, cmd, sizeof(cmd) - 1); 
-    // value
-    char const ok[] = "ok";
-    msgpack_pack_str(pk, sizeof(ok) - 1);
-    msgpack_pack_str_body(pk, ok, sizeof(ok) - 1);
+    // error code
+    msgpack_pack_int64(pk, 0);
 
     return 0;
 }
@@ -102,22 +96,11 @@ static int doGetTaintRamRange(msgpack_packer * pk, struct get_taint_range_params
     fprintf(stderr, "doGetTaintPhysRange(%lx, %lx)\n", p.start, p.stop);
 
     // Append reply to the buffer
-    msgpack_pack_map(pk, 2); // 2 pairs
+    msgpack_pack_array(pk, 2); // 2 pairs
 
-    // key
-    char const cmd[] = "cmd";
-    msgpack_pack_str(pk, sizeof(cmd) - 1);
-    msgpack_pack_str_body(pk, cmd, sizeof(cmd) - 1); 
-    // value
-    char const ok[] = "ok";
-    msgpack_pack_str(pk, sizeof(ok) - 1);
-    msgpack_pack_str_body(pk, ok, sizeof(ok) - 1);
+    // error code
+    msgpack_pack_int64(pk, 0);
 
-
-    // key
-    char const taint[] = "taint";
-    msgpack_pack_str(pk, sizeof(taint) - 1);
-    msgpack_pack_str_body(pk, taint, sizeof(taint) - 1); 
     // Value
     msgpack_pack_bin(pk, p.stop - p.start);
     msgpack_pack_bin_body(pk, shadow_mem + p.start, p.stop - p.start);
@@ -148,7 +131,7 @@ static int parseSetTaintRegCmd(msgpack_object_array cmd_arr, struct set_taint_re
     if(t64_bin.size != 8)
         return 1;
     memcpy(&(p->t64), t64_bin.ptr, 8);
-    
+
     return 0;
 }
 
@@ -194,23 +177,12 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
 
 
     // Append reply to the buffer
-    msgpack_pack_map(pk, 2); // 2 pairs
+    msgpack_pack_array(pk, 2);
 
-    // key
-    char const cmd[] = "cmd";
-    msgpack_pack_str(pk, sizeof(cmd) - 1);
-    msgpack_pack_str_body(pk, cmd, sizeof(cmd) - 1); 
-    // value
-    char const ok[] = "ok";
-    msgpack_pack_str(pk, sizeof(ok) - 1);
-    msgpack_pack_str_body(pk, ok, sizeof(ok) - 1);
+    // error code
+    msgpack_pack_int64(pk, 0);
 
-
-    // key
-    char const taint[] = "t64";
-    msgpack_pack_str(pk, sizeof(taint) - 1);
-    msgpack_pack_str_body(pk, taint, sizeof(taint) - 1); 
-    // Value
+    // taint
     msgpack_pack_bin(pk, 8);
     msgpack_pack_bin_body(pk, &t, 8);
 
@@ -224,7 +196,7 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
 
 static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk)
 {
-    // Parse the map into command and arguments
+    // Parse the array into command and arguments
     // Write the reply to packer pk
 
     msgpack_object_str cmd = {0};
@@ -275,7 +247,7 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
     }
     else
     {
-        fprintf(stderr, "Warning: skipping request, invalid or inexistant \"cmd\" in command map.\n");
+        fprintf(stderr, "Warning: skipping request, invalid or inexistant command in array.\n");
         ret = 1;
     }
 
@@ -321,7 +293,7 @@ static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
     {
         msgpack_object_array cmds = obj.via.array;
 
-        // prepare the reply as an array of reply maps
+        // prepare the reply as an array of reply arrays
         msgpack_pack_array(pk, cmds.size);
 
         for(size_t icmd = 0 ; icmd < cmds.size ; icmd++)
