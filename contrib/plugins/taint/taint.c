@@ -15,6 +15,7 @@
 
 #include <qemu-plugin.h>
 
+#include "hypercall.h"
 #include "monitor.h"
 #include "params.h"
 #include "propagate.h"
@@ -113,18 +114,11 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 {
     size_t n_insns = qemu_plugin_tb_n_insns(tb);
 
-    // Instrument all the memory accesses (READ and WRITES)
     for (size_t i = 0; i < n_insns; i++)
     {
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
 
         void * data_mem = NULL;
-
-        qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem_access,
-                                         QEMU_PLUGIN_CB_NO_REGS,
-                                         QEMU_PLUGIN_MEM_RW, data_mem);
-
-
 
         void const * instr_ptr = qemu_plugin_insn_data(insn);
         
@@ -165,11 +159,27 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 break;
             }
         }
-        
 
-        // "Readonly" regs, but not implemented on QEMU's side...
-        qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
-                                         QEMU_PLUGIN_CB_R_REGS, (void*)ins_data);
+        // Detect hypercalls, instrument them with the hypercall callback instead
+        // of the taint propagation callback
+        if (ins_data->instr == 0x42100013)
+        {
+            // the instruction is "addi zero, zero, 0x421", this is the hypercall signal
+            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_hypercall_cb,
+                QEMU_PLUGIN_CB_R_REGS, (void*)ins_data);
+
+        }
+        else
+        {
+            // Instrument all the memory accesses (READ and WRITES)
+            qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem_access,
+                                            QEMU_PLUGIN_CB_NO_REGS,
+                                            QEMU_PLUGIN_MEM_RW, data_mem);
+
+            // "Readonly" regs, but not implemented on QEMU's side...
+            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
+                                            QEMU_PLUGIN_CB_R_REGS, (void*)ins_data);
+        }
     }
 }
 
@@ -213,7 +223,7 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     
-
+    init_hypercall_handler();
 
 #ifndef NDEBUG
     taint_logging_init();

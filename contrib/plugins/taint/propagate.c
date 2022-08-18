@@ -114,7 +114,7 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, uint64_
             }
 
             tout = t;
-            _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: t%" PRIu8 " <- t[%" PRIx64 "]=" PRIx64 "\n", vaddr, paddr, rd, tout);
+            _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: t%" PRIu8 " <- t[%" PRIx64 "]=%" PRIx64 "\n", vaddr, paddr, rd, ram_addr, tout);
         }
     }
     
@@ -1523,12 +1523,12 @@ static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
     case INSTR16_RV64_OPCODE_SWSP:
     case INSTR16_RV64_OPCODE_SDSP:
     {
-        fprintf(stderr, "Unsupported compressed operation: %" PRIx8 "\n", opcode);
+        fprintf(stderr, "Unsupported compressed instr opcode: 0x%" PRIx8 "\n", opcode);
         break;
     }
     default:
     {
-        fprintf(stderr, "Unknown opcode for instr16: %" PRIx16 "\n", instr);
+        fprintf(stderr, "Unknown opcode for instr16: 0x%" PRIx16 "\n", instr);
         break;
     }
     }
