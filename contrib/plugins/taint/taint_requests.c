@@ -6,6 +6,8 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include <qemu-plugin.h>
+
 #include "params.h"
 
 static int pack_ok(msgpack_packer * pk)
@@ -22,11 +24,11 @@ static int pack_ok(msgpack_packer * pk)
 struct set_taint_range_params
 {
     uint64_t start;
-    uint64_t stop;
+    uint64_t length;
     char t8;
 };
 
-static int parseSetTaintRangeCmd(msgpack_object_array cmd_arr, struct set_taint_range_params * p)
+static int parseSetTaintPaddrRangeCmd(msgpack_object_array cmd_arr, struct set_taint_range_params * p)
 {
     if(cmd_arr.size != 4)
         return 1;
@@ -39,7 +41,7 @@ static int parseSetTaintRangeCmd(msgpack_object_array cmd_arr, struct set_taint_
     msgpack_object p2 = cmd_arr.ptr[2];
     if(p2.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
         return 1;
-    p->stop = p2.via.u64;
+    p->length = p2.via.u64;
 
     msgpack_object p3 = cmd_arr.ptr[3];
     if(p3.type != MSGPACK_OBJECT_BIN)
@@ -52,12 +54,15 @@ static int parseSetTaintRangeCmd(msgpack_object_array cmd_arr, struct set_taint_
     return 0;
 }
 
-static int doTaintRamRange(msgpack_packer * pk, struct set_taint_range_params p)
+static int doTaintPaddrRange(msgpack_packer * pk, struct set_taint_range_params p)
 {
 
-    fprintf(stderr, "doTaintPhysRange(%lx, %lx, %d)\n", p.start, p.stop, p.t8);
+    fprintf(stderr, "doTaintPaddrRange(0x%" PRIx64 ", %" PRIu64 ", 0x%" PRIx8")\n", p.start, p.length, p.t8);
 
-    memset(shadow_mem + p.start, p.t8, p.stop - p.start);
+    uint64_t start_r = 0;
+    qemu_plugin_paddr_to_ram_addr(p.start, &start_r);
+
+    memset(shadow_mem + start_r, p.t8, p.length);
 
     pack_ok(pk);
 
@@ -68,11 +73,11 @@ static int doTaintRamRange(msgpack_packer * pk, struct set_taint_range_params p)
 struct get_taint_range_params
 {
     uint64_t start;
-    uint64_t stop;
+    uint64_t length;
     char t8;
 };
 
-static int parseGetTaintRangeCmd(msgpack_object_array cmd_arr, struct get_taint_range_params * p)
+static int parseGetTaintPaddrRangeCmd(msgpack_object_array cmd_arr, struct get_taint_range_params * p)
 {
     if(cmd_arr.size != 3)
         return 1;
@@ -85,25 +90,29 @@ static int parseGetTaintRangeCmd(msgpack_object_array cmd_arr, struct get_taint_
     msgpack_object p2 = cmd_arr.ptr[2];
     if(p2.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
         return 1;
-    p->stop = p2.via.u64;
+    p->length = p2.via.u64;
 
     return 0;
 }
 
 
-static int doGetTaintRamRange(msgpack_packer * pk, struct get_taint_range_params p)
+static int doGetTaintPaddrRange(msgpack_packer * pk, struct get_taint_range_params p)
 {
-    fprintf(stderr, "doGetTaintPhysRange(%lx, %lx)\n", p.start, p.stop);
+    fprintf(stderr, "doGetTaintPaddrRange(0x%" PRIx64 ", %" PRIu64 ")\n", p.start, p.length);
+
+    uint64_t start_r = 0;
+    qemu_plugin_paddr_to_ram_addr(p.start, &start_r);
+
 
     // Append reply to the buffer
-    msgpack_pack_array(pk, 2); // 2 pairs
+    msgpack_pack_array(pk, 2);
 
     // error code
     msgpack_pack_int64(pk, 0);
 
     // Value
-    msgpack_pack_bin(pk, p.stop - p.start);
-    msgpack_pack_bin_body(pk, shadow_mem + p.start, p.stop - p.start);
+    msgpack_pack_bin(pk, p.length);
+    msgpack_pack_bin_body(pk, shadow_mem + start_r, p.length);
 
     return 0;
 }
@@ -212,21 +221,21 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
     
     // Now dispatch
     int ret;
-    if (CMD_CMP(cmd, "set-taint-ram-range"))
+    if (CMD_CMP(cmd, "set-taint-range"))
     {
         struct set_taint_range_params p = {0};
-        if (parseSetTaintRangeCmd(cmd_arr, &p))
+        if (parseSetTaintPaddrRangeCmd(cmd_arr, &p))
             ret = 1;
         else
-            ret = doTaintRamRange(pk, p);
+            ret = doTaintPaddrRange(pk, p);
     }
-    else if (CMD_CMP(cmd, "get-taint-ram-range"))
+    else if (CMD_CMP(cmd, "get-taint-range"))
     {
         struct get_taint_range_params p = {0};
-        if (parseGetTaintRangeCmd(cmd_arr, &p))
+        if (parseGetTaintPaddrRangeCmd(cmd_arr, &p))
             ret = 1;
         else
-            ret = doGetTaintRamRange(pk, p);
+            ret = doGetTaintPaddrRange(pk, p);
     }
     else if (CMD_CMP(cmd, "set-taint-reg"))
     {

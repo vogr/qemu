@@ -61,6 +61,7 @@ void vcpu_insn_hypercall_cb(unsigned int vcpu_index, void *userdata)
     // between host and guest. This does not add a copy as we can read
     // directly into msgpack's unpacker buffer.
 
+    // reserve space for unpacking
     size_t cur_capacity = msgpack_unpacker_buffer_capacity(&unp);
 
     _DEBUG("unpack_buf capacity = %zu, needs at least %zu\n", cur_capacity, cmd_size);
@@ -74,6 +75,9 @@ void vcpu_insn_hypercall_cb(unsigned int vcpu_index, void *userdata)
             exit(1);
         }
     }
+
+    // reclaim space for reply
+    msgpack_sbuffer_clear(&packing_sbuf);
 
     _DEBUG("Reading the command at vaddr=%" PRIx64 " paddr=%" PRIx64 "\n", cmdbuf_vaddr, cmdbuf_paddr);
     if(qemu_plugin_read_at_paddr(cmdbuf_paddr, msgpack_unpacker_buffer(&unp), cmd_size))
@@ -115,6 +119,6 @@ void vcpu_insn_hypercall_cb(unsigned int vcpu_index, void *userdata)
 
     // write reply size to a4
     int outregs[1] = {14};
-    int outval[1] = {outsize};
+    uint64_t outval[1] = {outsize};
     qemu_plugin_set_register_values(cs, 1, outregs, outval);
 }
