@@ -32,6 +32,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 pthread_t taint_monitor_thread = {0};
 
+#ifdef TAINT_DEBUG_MEM_ACCESSES
 static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
                             uint64_t vaddr, void *userdata)
 {
@@ -73,22 +74,8 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
          qemu_plugin_mem_is_sign_extended(info),
          qemu_plugin_mem_is_big_endian(info)
         );
-
-    /*
-     * Currently:
-     * 1. read the response from QEMU, drop the unused data, copy register representation
-     *    in a buffer, then parse the buffer, then do taint propagation
-     * 2. Improvement 1: do the parse and taint in another thread so that we can give
-     *    back control of main thread to QEMU. E.g. push buffer to a (blocking?) queue
-     *    and return. Another thread picks up buffer and processes.
-     */ 
-
-    //get_regs_repr(ALL_REGS_STRING_MAX_LEN, all_regs_string);
-
-
-    // Parse the integer and fp registers (as uint32)
 }
-
+#endif
 
 // Instr sizes are just 16 or 32, use a uint32 for both 
 struct InsnData
@@ -117,8 +104,6 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
     for (size_t i = 0; i < n_insns; i++)
     {
         struct qemu_plugin_insn *insn = qemu_plugin_tb_get_insn(tb, i);
-
-        void * data_mem = NULL;
 
         void const * instr_ptr = qemu_plugin_insn_data(insn);
         
@@ -171,11 +156,13 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         }
         else
         {
+#ifdef TAINT_DEBUG_MEM_ACCESSES
+            void * data_mem = NULL;
             // Instrument all the memory accesses (READ and WRITES)
             qemu_plugin_register_vcpu_mem_cb(insn, vcpu_mem_access,
                                             QEMU_PLUGIN_CB_NO_REGS,
                                             QEMU_PLUGIN_MEM_RW, data_mem);
-
+#endif
             // "Readonly" regs, but not implemented on QEMU's side...
             qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
                                             QEMU_PLUGIN_CB_R_REGS, (void*)ins_data);
