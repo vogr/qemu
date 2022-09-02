@@ -2,9 +2,17 @@
 
 #include <stdint.h>
 
-#define MASK(N) ((((uint64_t)1) << N) - 1)
+inline uint64_t MASK(int N)
+{
+    return (((uint64_t)1) << N) - 1;
+}
 
-
+inline uint64_t SIGN_EXTEND(uint64_t N, int k)
+{
+    uint64_t m = ((uint64_t)1) << k;
+    uint64_t low_mask = m - 1;
+    return (N & low_mask) - (N & m);
+}
 /***
  * 32 bits long instructions (uncompressed)
  * 
@@ -196,6 +204,12 @@ enum {
 #define INSTR16_CS_RS1C_GET(instr) ((instr >>  7) & MASK(3))
 #define INSTR16_CS_RS2C_GET(instr) ((instr >>  2) & MASK(3))
 
+
+#define INSTR16_C1_IMM_0_4_GET(instr) ((instr >> 2) & MASK(5))
+#define INSTR16_C1_IMM_5_GET(instr) ((instr >> 12) & 1)
+#define INSTR16_C1_IMM_GET(instr) (INSTR16_C1_IMM_0_4_GET(instr) | (INSTR16_C1_IMM_5_GET(instr) << 5))
+
+#define INSTR16_C1_RD_GET(instr) ((instr >> 2) & MASK(5))
 
 /** Opcodes for compressed 16 bits instructions **/
 

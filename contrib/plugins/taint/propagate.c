@@ -49,11 +49,14 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, uint64_
     pthread_mutex_lock(&shadow_lock);
 
     uint64_t tout = 0;
+    uint64_t paddr = 0;
+    uint64_t ram_addr = 0;
+
     if (t1)
     {
         // tainted ptr implies fully tainted value!
         tout = -1;
-        _DEBUG("Propagate load[v=%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIx64 "\n", vaddr, rd, tout);
+        _DEBUG("Propagate load[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIx64 "\n", vaddr, rd, tout);
     }
     else
     {
@@ -64,15 +67,14 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, uint64_
         // adress translation
         // FIXME: does this work or shd we also add logic in mem callback?
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-        uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
-        uint64_t ram_addr = 0;
+        paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
 
         if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
         {
             //Non-ram location
             //FIXME: how shd we handle this?
             tout = 0;
-            _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- %" PRIx64 "\n", vaddr, paddr, rd, tout);
+            _DEBUG("Propagate load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIx64 "\n", vaddr, paddr, rd, tout);
         }
         else
         {
@@ -118,6 +120,13 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, uint64_
         }
     }
     
+    #ifndef NDEBUG
+    if (tout)
+    {
+        _DEBUG("NON-ZERO TAINT LOADED FROM MAIN MEM!\n");
+    }
+    #endif
+
     shadow_regs[rd] = tout;
 
     pthread_mutex_unlock(&shadow_lock);
@@ -1449,6 +1458,66 @@ static void propagate_taint_CSD(unsigned int vcpu_idx, uint16_t instr)
     propagate_taint_store_impl(vcpu_idx, vals.v1, vals.v2, offset, t1, t2, STORE_SD);
 }
 
+static void propagate_taint_CLI(unsigned int vcpu_idx, uint16_t instr)
+{
+    // writes immediate to rd (!= x0)
+    uint8_t rd = INSTR16_C1_RD_GET(instr);
+    assert(rd != 0);
+    shadow_regs[rd] = 0;
+
+    _DEBUG("Propagate C.LI(??) -> r%" PRIu8 "\n", rd);
+    _DEBUG("t%" PRIu8 " = %" PRIx64 "\n", rd, 0);
+
+
+}
+
+static void propagate_taint_CLUI_CADDI16SP(unsigned int vcpu_idx, uint16_t instr)
+{
+    uint8_t rd = INSTR16_C1_RD_GET(instr);
+    // rd == x0 reserved 
+    assert(rd != 0);
+
+    if (rd == 2)
+    {
+        // rd == x2 => C.ADDI16SP
+        // x2 <- x2 + nzimm
+        
+        uint16_t nzimm0_9 =
+            0b00000 |
+            ((instr >> 6) & 0x1) << 4 |
+            ((instr >> 2) & 0x1) << 5 |
+            ((instr >> 5) & 0x1) << 6 |  
+            ((instr >> 3) & 0x11) << 7 |  
+            ((instr >> 12) & 0x1) << 9
+        ;
+
+        assert(nzimm0_9 != 0);
+
+        uint16_t nzimm =SIGN_EXTEND(nzimm0_9, 9);
+
+        uint64_t v1 = get_one_reg_value(vcpu_idx, rd);
+        uint64_t t1 = shadow_regs[rd];
+
+        uint64_t tout = propagate_taint__add(v1, nzimm, t1, 0);
+
+        shadow_regs[rd] = tout; 
+
+        _DEBUG("Propagate C.ADDI16SP(%" PRIx64 ") -> r%" PRIu8 "\n", v1,  rd);
+        _DEBUG("t%" PRIu8 " = %" PRIx64 " -> t%" PRIu8 " = %" PRIx64 "\n", rd, t1, rd, tout);
+
+    }
+    else
+    {
+        // else => C.LUI
+        shadow_regs[rd] = 0;
+
+        _DEBUG("Propagate C.LUI(??) -> r%" PRIu8 "\n", rd);
+        _DEBUG("t%" PRIu8 " = %" PRIx64 " \n", rd, 0);
+
+    }
+}
+
+
 /* opcode dispatch */
 static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
 {
@@ -1504,12 +1573,20 @@ static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
     {
         // FIXME: not supported
         // can prob have common impl w/ additional param
-        _DEBUG("CADDI/CADD not supported\n");
+        _DEBUG("C.ADDI/C.ADD not supported\n");
         break;
 
     }
     case INSTR16_RV64_OPCODE_LI:
+    {
+        propagate_taint_CLI(vcpu_idx, instr);
+        break;
+    }
     case INSTR16_RV64_OPCODE_LUI_ADDI16SP:
+    {
+        propagate_taint_CLUI_CADDI16SP(vcpu_idx, instr);
+        break;
+    }
     case INSTR16_RV64_OPCODE_MISC_ALU:
     case INSTR16_RV64_OPCODE_J:
     case INSTR16_RV64_OPCODE_BEQZ:
