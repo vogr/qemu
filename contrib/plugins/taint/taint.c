@@ -40,15 +40,11 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
     struct qemu_plugin_hwaddr *hwaddr  = qemu_plugin_get_hwaddr(info, vaddr);
     assert(hwaddr != NULL);
 
-    /*
-    if (qemu_plugin_hwaddr_is_io(hwaddr)) {
-        // We don't support tainted IO devices
-        return;
-    }
-    */
+
 
     uint64_t paddr_meminfo = qemu_plugin_hwaddr_phys_addr(hwaddr);
     uint64_t ram_addr_meminfo = qemu_plugin_hwaddr_ram_addr(hwaddr);
+    
 
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_index);
     uint64_t paddr_cs  = qemu_plugin_vaddr_to_paddr(cs, vaddr);
@@ -66,9 +62,15 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
     {
         _DEBUG("Load");
     }
-    _DEBUG(" at vaddr %" PRIx64 "\n", vaddr);
-    _DEBUG(" -> meminfo: paddr = %" PRIx64 " ram_addr= %" PRIx64 "\n", paddr_meminfo, ram_addr_meminfo);
-    _DEBUG(" -> cs/as:   paddr = %" PRIx64 " ram_addr= %" PRIx64 "\n", paddr_cs, ram_addr_cs);
+    _DEBUG(" at vaddr 0x%" PRIx64 "\n", vaddr);
+
+    if (qemu_plugin_hwaddr_is_io(hwaddr)) {
+        // We don't support tainted IO devices
+        _DEBUG("-> to MMIO !!\n")
+    }
+
+    _DEBUG(" -> meminfo: paddr = 0x%" PRIx64 " ram_addr= 0x%" PRIx64 "\n", paddr_meminfo, ram_addr_meminfo);
+    _DEBUG(" -> cs/as:   paddr = 0x%" PRIx64 " ram_addr= 0x%" PRIx64 "\n", paddr_cs, ram_addr_cs);
     _DEBUG(" |- logsize=%d sign_extended=%d  big_endian=%d\n",
          qemu_plugin_mem_size_shift(info),
          qemu_plugin_mem_is_sign_extended(info),
@@ -88,7 +90,7 @@ struct InsnData
 static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
 {
     struct InsnData * ins_data = (struct InsnData*)userdata;
-    _DEBUG("%s\n", ins_data->disas);
+    //_DEBUG("%s\n", ins_data->disas);
     propagate_taint(vcpu_index, ins_data->instr_size, ins_data->instr);
 }
 
@@ -195,7 +197,10 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     uint64_t ram_size = qemu_plugin_get_ram_size();
     uint64_t max_ram_size = qemu_plugin_get_max_ram_size();
     fprintf(stderr, "Reserving shadow memory for ram size %" PRIu64 "B (max is %" PRIu64 "B)\n", ram_size, max_ram_size);
-    shadow_mem = mmap(NULL, ram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    
+    // RAM size + ROM size
+    shadow_mem_size = ram_size + (0xf000 - 0x1000);
+    shadow_mem = mmap(NULL, shadow_mem_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
 
     // enable taint monitor
     static char taintmon_path[] = "taint_monitor.sock";
