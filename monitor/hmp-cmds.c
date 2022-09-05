@@ -307,6 +307,11 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
             monitor_printf(mon, "postcopy ram: %" PRIu64 " kbytes\n",
                            info->ram->postcopy_bytes >> 10);
         }
+        if (info->ram->dirty_sync_missed_zero_copy) {
+            monitor_printf(mon,
+                           "Zero-copy-send fallbacks happened: %" PRIu64 " times\n",
+                           info->ram->dirty_sync_missed_zero_copy);
+        }
     }
 
     if (info->has_disk) {
@@ -1311,12 +1316,6 @@ void hmp_migrate_set_parameter(Monitor *mon, const QDict *qdict)
         p->has_multifd_zstd_level = true;
         visit_type_uint8(v, param, &p->multifd_zstd_level, &err);
         break;
-#ifdef CONFIG_LINUX
-    case MIGRATION_PARAMETER_ZERO_COPY_SEND:
-        p->has_zero_copy_send = true;
-        visit_type_bool(v, param, &p->zero_copy_send, &err);
-        break;
-#endif
     case MIGRATION_PARAMETER_XBZRLE_CACHE_SIZE:
         p->has_xbzrle_cache_size = true;
         if (!visit_type_size(v, param, &cache_size, &err)) {
@@ -2343,6 +2342,8 @@ static void print_stats_results(Monitor *mon, StatsTarget target,
 
         if (stats_value->type == QTYPE_QNUM) {
             monitor_printf(mon, ": %" PRId64 "\n", stats_value->u.scalar);
+        } else if (stats_value->type == QTYPE_QBOOL) {
+            monitor_printf(mon, ": %s\n", stats_value->u.boolean ? "yes" : "no");
         } else if (stats_value->type == QTYPE_QLIST) {
             uint64List *list;
             int i;

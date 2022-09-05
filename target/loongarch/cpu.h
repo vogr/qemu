@@ -47,11 +47,23 @@ FIELD(FCSR0, FLAGS, 16, 5)
 FIELD(FCSR0, CAUSE, 24, 5)
 
 #define GET_FP_CAUSE(REG)      FIELD_EX32(REG, FCSR0, CAUSE)
-#define SET_FP_CAUSE(REG, V)   FIELD_DP32(REG, FCSR0, CAUSE, V)
+#define SET_FP_CAUSE(REG, V) \
+    do { \
+        (REG) = FIELD_DP32(REG, FCSR0, CAUSE, V); \
+    } while (0)
+
 #define GET_FP_ENABLES(REG)    FIELD_EX32(REG, FCSR0, ENABLES)
-#define SET_FP_ENABLES(REG, V) FIELD_DP32(REG, FCSR0, ENABLES, V)
+#define SET_FP_ENABLES(REG, V) \
+    do { \
+        (REG) = FIELD_DP32(REG, FCSR0, ENABLES, V); \
+    } while (0)
+
 #define GET_FP_FLAGS(REG)      FIELD_EX32(REG, FCSR0, FLAGS)
-#define SET_FP_FLAGS(REG, V)   FIELD_DP32(REG, FCSR0, FLAGS, V)
+#define SET_FP_FLAGS(REG, V) \
+    do { \
+        (REG) = FIELD_DP32(REG, FCSR0, FLAGS, V); \
+    } while (0)
+
 #define UPDATE_FP_FLAGS(REG, V) \
     do { \
         (REG) |= FIELD_DP32(0, FCSR0, FLAGS, V); \
@@ -246,8 +258,6 @@ typedef struct CPUArchState {
     uint64_t lladdr; /* LL virtual address compared against SC */
     uint64_t llval;
 
-    uint64_t badaddr;
-
     /* LoongArch CSRs */
     uint64_t CSR_CRMD;
     uint64_t CSR_PRMD;
@@ -303,6 +313,7 @@ typedef struct CPUArchState {
     uint64_t CSR_DERA;
     uint64_t CSR_DSAVE;
 
+#ifndef CONFIG_USER_ONLY
     LoongArchTLB  tlb[LOONGARCH_TLB_MAX];
 
     AddressSpace address_space_iocsr;
@@ -310,6 +321,7 @@ typedef struct CPUArchState {
     MemoryRegion iocsr_mem;
     bool load_elf;
     uint64_t elf_address;
+#endif
 } CPULoongArchState;
 
 /**
@@ -326,6 +338,9 @@ struct ArchCPU {
     CPUNegativeOffsetState neg;
     CPULoongArchState env;
     QEMUTimer timer;
+
+    /* 'compatible' string for this CPU for Linux device trees */
+    const char *dtb_compatible;
 };
 
 #define TYPE_LOONGARCH_CPU "loongarch-cpu"
@@ -360,12 +375,16 @@ struct LoongArchCPUClass {
 
 static inline int cpu_mmu_index(CPULoongArchState *env, bool ifetch)
 {
+#ifdef CONFIG_USER_ONLY
+    return MMU_USER_IDX;
+#else
     uint8_t pg = FIELD_EX64(env->CSR_CRMD, CSR_CRMD, PG);
 
     if (!pg) {
         return MMU_DA_IDX;
     }
     return FIELD_EX64(env->CSR_CRMD, CSR_CRMD, PLV);
+#endif
 }
 
 static inline void cpu_get_tb_cpu_state(CPULoongArchState *env,
