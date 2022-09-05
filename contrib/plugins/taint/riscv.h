@@ -4,12 +4,12 @@
 
 #include "xlen.h"
 
-inline target_ulong MASK(int N)
+static inline target_ulong MASK(int N)
 {
     return (((target_ulong)1) << N) - 1;
 }
 
-inline target_ulong SIGN_EXTEND(target_ulong N, int k)
+static inline target_ulong SIGN_EXTEND(target_ulong N, int k)
 {
     target_ulong m = ((target_ulong)1) << k;
     target_ulong low_mask = m - 1;
