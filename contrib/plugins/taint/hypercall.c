@@ -10,6 +10,7 @@
 
 #include "taint_requests.h"
 #include "logging.h"
+#include "xlen.h"
 
 static msgpack_unpacker unp = {0};
 
@@ -47,13 +48,13 @@ void vcpu_insn_hypercall_cb(unsigned int vcpu_index, void *userdata)
 
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_index);
     int regs[4] = {10, 11, 12, 13};
-    uint64_t values[4];
+    target_ulong values[4];
     qemu_plugin_get_register_values(cs, 4, regs, values);
 
-    uint64_t cmdbuf_vaddr = values[0];
-    uint64_t cmd_size = values[1];
-    uint64_t repbuf_vaddr = values[2];
-    uint64_t repbuf_size = values[3];
+    target_ulong cmdbuf_vaddr = values[0];
+    target_ulong cmd_size = values[1];
+    target_ulong repbuf_vaddr = values[2];
+    target_ulong repbuf_size = values[3];
 
     uint64_t cmdbuf_paddr = qemu_plugin_vaddr_to_paddr(cs, cmdbuf_vaddr);
 
@@ -117,8 +118,11 @@ void vcpu_insn_hypercall_cb(unsigned int vcpu_index, void *userdata)
         outsize = packing_sbuf.size;
     }
 
+    assert(outsize < TARGET_ULONG_MAX);
+
     // write reply size to a4
     int outregs[1] = {14};
-    uint64_t outval[1] = {outsize};
+    // values passed by void* should have target_ulong size
+    target_ulong outval[1] = { (target_ulong) outsize};
     qemu_plugin_set_register_values(cs, 1, outregs, outval);
 }

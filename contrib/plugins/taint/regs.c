@@ -13,10 +13,10 @@
 /***
  * Accessing source registers values through the extended QEMU interface
  */
-uint64_t get_one_reg_value(unsigned int vcpu_idx, char r)
+target_ulong get_one_reg_value(unsigned int vcpu_idx, char r)
 {
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-    uint64_t values[1];
+    target_ulong values[1];
     int regs[1] = {r};
     qemu_plugin_get_register_values(cs, 1, regs, values);
     return values[0];
@@ -27,7 +27,7 @@ uint64_t get_one_reg_value(unsigned int vcpu_idx, char r)
 struct src_regs_values get_src_reg_values(unsigned int vcpu_idx, char rs1, char rs2)
 {
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-    uint64_t values[2];
+    target_ulong values[2];
     int regs[2] = {rs1, rs2};
     qemu_plugin_get_register_values(cs, 2, regs, values);
 

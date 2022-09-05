@@ -615,6 +615,7 @@ void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int
  * @n_registers: number of register values to set
  * @register_ids: n_registers ids of register to set
  * @values: values to write to the registers
+ *          values passed by void* should have target_ulong size
  */
 void qemu_plugin_set_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values);
 

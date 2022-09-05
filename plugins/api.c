@@ -457,6 +457,7 @@ void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int
 
 void qemu_plugin_set_register_values(qemu_cpu_state pcs, size_t n_registers, int * register_ids, void * values)
 {
+// values passed by void* should have target_ulong size
 #if TARGET_RISCV
     RISCVCPU *rvcpu = RISCV_CPU(pcs);
     CPURISCVState *env = &rvcpu->env;

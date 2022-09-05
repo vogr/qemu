@@ -120,7 +120,7 @@ static int doGetTaintPaddrRange(msgpack_packer * pk, struct get_taint_range_para
 struct set_taint_reg_params
 {
     uint64_t reg;
-    uint64_t t64;
+    target_ulong t; // xlen bits
 };
 
 static int parseSetTaintRegCmd(msgpack_object_array cmd_arr, struct set_taint_reg_params * p)
@@ -137,20 +137,20 @@ static int parseSetTaintRegCmd(msgpack_object_array cmd_arr, struct set_taint_re
     if(p2.type != MSGPACK_OBJECT_BIN)
         return 1;
     msgpack_object_bin t64_bin = p2.via.bin;
-    if(t64_bin.size != 8)
+    if(t64_bin.size != sizeof(target_ulong))
         return 1;
-    memcpy(&(p->t64), t64_bin.ptr, 8);
+    memcpy(&(p->t), t64_bin.ptr, sizeof(target_ulong));
 
     return 0;
 }
 
 static int doTaintReg(msgpack_packer * pk, struct set_taint_reg_params p)
 {
-    fprintf(stderr, "doTaintReg(%" PRIu64 ", %" PRIx64 ")\n", p.reg, p.t64);
+    fprintf(stderr, "doTaintReg(%" PRIu64 ", %" PRIxXLEN ")\n", p.reg, p.t);
 
     // FIXME: locking! Or really? Could also say:
     // accessing during execution is UB
-    shadow_regs[p.reg] = p.t64;
+    shadow_regs[p.reg] = p.t;
 
     pack_ok(pk);
 
@@ -182,7 +182,7 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
 
     // FIXME: locking! Or really? Could also say:
     // accessing during execution is UB
-    uint64_t t = shadow_regs[p.reg];
+    target_ulong t = shadow_regs[p.reg];
 
 
     // Append reply to the buffer
@@ -192,8 +192,8 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
     msgpack_pack_int64(pk, 0);
 
     // taint
-    msgpack_pack_bin(pk, 8);
-    msgpack_pack_bin_body(pk, &t, 8);
+    msgpack_pack_bin(pk, sizeof(target_ulong));
+    msgpack_pack_bin_body(pk, &t, sizeof(target_ulong));
 
     return 0;
 }

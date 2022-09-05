@@ -2,15 +2,17 @@
 
 #include <stdint.h>
 
-inline uint64_t MASK(int N)
+#include "xlen.h"
+
+inline target_ulong MASK(int N)
 {
-    return (((uint64_t)1) << N) - 1;
+    return (((target_ulong)1) << N) - 1;
 }
 
-inline uint64_t SIGN_EXTEND(uint64_t N, int k)
+inline target_ulong SIGN_EXTEND(target_ulong N, int k)
 {
-    uint64_t m = ((uint64_t)1) << k;
-    uint64_t low_mask = m - 1;
+    target_ulong m = ((target_ulong)1) << k;
+    target_ulong low_mask = m - 1;
     return (N & low_mask) - (N & m);
 }
 /***
