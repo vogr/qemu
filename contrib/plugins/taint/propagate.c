@@ -151,7 +151,7 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
                     exit(1);
                 }
             }
-            _DEBUG("Propagate load[v=%" PRIx64 ", p=%" PRIx64 "]: t%" PRIu8 " <- t[%" PRIx64 "]=%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
+            _DEBUG("Propagate load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
         }
     }
 

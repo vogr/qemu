@@ -46,7 +46,8 @@ lib%.so: %.o
 TAINT_BUILD_DIR := $(CURDIR)/taint
 TAINT_OBJS := taint/hypercall.o taint/logging.o taint/monitor.o taint/params.o taint/propagate.o taint/regs.o taint/taint.o taint/taint_requests.o
 
-CFLAGS_TAINT :=
+RISCV_XLEN?=64
+CFLAGS_TAINT := -DRISCV_XLEN=32
 
 LDLIBS_TAINT :=
 LDLIBS_TAINT += -lmsgpackc
