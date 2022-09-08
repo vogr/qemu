@@ -211,7 +211,7 @@ enum {
 #define INSTR16_C1_IMM_5_GET(instr) ((instr >> 12) & 1)
 #define INSTR16_C1_IMM_GET(instr) (INSTR16_C1_IMM_0_4_GET(instr) | (INSTR16_C1_IMM_5_GET(instr) << 5))
 
-#define INSTR16_C1_RD_GET(instr) ((instr >> 2) & MASK(5))
+#define INSTR16_C1_RD_GET(instr) ((instr >> 7) & MASK(5))
 
 /** Opcodes for compressed 16 bits instructions **/
 
