@@ -95,21 +95,21 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
                 case LOAD_LB:
                 {
                     int8_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
                 case LOAD_LH:
                 {
                     int16_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
                 case LOAD_LW:
                 {
                     int32_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
@@ -117,7 +117,7 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
                 case LOAD_LD:
                 {
                     int64_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
@@ -125,14 +125,14 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
                 case LOAD_LBU:
                 {
                     uint8_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
                 case LOAD_LHU:
                 {
                     uint16_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
@@ -140,7 +140,7 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
                 case LOAD_LWU:
                 {
                     uint32_t t = 0;
-                    memcpy(shadow_mem + ram_addr, &t, sizeof(t));
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
@@ -560,8 +560,8 @@ static void propagate_taint_XOR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
      * Exception: if rs1 is rs2, then the output is always 0.
      */
 
-    target_ulong tout;
-    target_ulong t1, t2;
+    target_ulong tout = 0;
+    target_ulong t1 = 0, t2 = 0;
     if (rs1 == rs2)
     {
         tout = 0;
