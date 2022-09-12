@@ -175,9 +175,6 @@ void taint_monitor_loop(char const * taintsock_path)
                 break;
             }
 
-            // as soon as we receive data, stop the taint propagation
-            pthread_mutex_lock(&shadow_lock);
-
 
             fprintf(stderr, "Received %zu bytes\n", (size_t)nread);
             for(ssize_t i = 0; i < nread; i++)
@@ -209,9 +206,6 @@ void taint_monitor_loop(char const * taintsock_path)
                     perror("Error sending msgpack object reply over socket");
                 }
             }
-
-            // resume taint propagation
-            pthread_mutex_unlock(&shadow_lock);
 
         }
 

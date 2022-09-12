@@ -46,9 +46,6 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
 {
     uint64_t vaddr = v1 + offt;
 
-    // Do not read/write to the shadow mem concurrently with a taint-get/set query
-    pthread_mutex_lock(&shadow_lock);
-
     target_ulong tout = 0;
     uint64_t paddr = 0;
     uint64_t ram_addr = 0;
@@ -156,8 +153,6 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
     }
 
     shadow_regs[rd] = tout;
-
-    pthread_mutex_unlock(&shadow_lock);
 }
 
 static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
@@ -230,9 +225,6 @@ static void propagate_taint_store_impl(unsigned int vcpu_idx, target_ulong v1, t
     {
         // truncate the taint when writing
 
-        // Do not read/write to the shadow mem concurrently with a taint-get/set query
-        pthread_mutex_lock(&shadow_lock);
-
 
         switch (st)
         {
@@ -268,9 +260,6 @@ static void propagate_taint_store_impl(unsigned int vcpu_idx, target_ulong v1, t
                 exit(1);
             }
         }
-
-        // Do not read/write to the shadow mem concurrently with a taint-get/set query
-        pthread_mutex_unlock(&shadow_lock);
 
 
         _DEBUG("Propagate store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t[0x%" PRIx64 "] = 0x%" PRIxXLEN "\n", vaddr, paddr, ram_addr, t2);
