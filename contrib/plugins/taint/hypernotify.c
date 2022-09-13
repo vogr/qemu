@@ -98,6 +98,8 @@ void vcpu_insn_hypernotify_cb(unsigned int vcpu_index, void *userdata)
     int id = hyp_data->id;
 
     // prepare notification to send
+    msgpack_sbuffer_clear(&packing_sbuf);
+
     msgpack_pack_array(&pk, 2);
 
     // string
@@ -111,11 +113,13 @@ void vcpu_insn_hypernotify_cb(unsigned int vcpu_index, void *userdata)
     // no interleaving should happen, as the hypernotify
     // instruction can only be encountered during emulation
     // and a client mustn't use taint control during the emulation
-    _DEBUG("HN: Send notify\n")
+    fprintf(stderr, "Send notify(%d) \n", id);
+    _DEBUG("HN: Send notify %d\n", id)
     if(monitor_sendall(packing_sbuf.size, packing_sbuf.data))
     {
         perror("Error sending notification over monitor socket");
     }
+
 
     monitor_wait_for_resume_command();
 }
