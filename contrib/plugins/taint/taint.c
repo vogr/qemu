@@ -16,6 +16,7 @@
 #include <qemu-plugin.h>
 
 #include "hypercall.h"
+#include "hypernotify.h"
 #include "monitor.h"
 #include "params.h"
 #include "propagate.h"
@@ -156,6 +157,19 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                 QEMU_PLUGIN_CB_R_REGS, (void*)ins_data);
 
         }
+        else if ((ins_data->instr & 0xf00fffff) == 0x10000013)
+        {
+            // the instruction is "addi zero, zero, 0x1vv"
+            // where vv is a two digit arbitrary number
+            // this is the hypernotify signal
+            int id = (ins_data->instr >> 20) & 0xff;
+
+            struct HypernotifyData * hndata = malloc(sizeof(struct HypernotifyData));
+            hndata->id = id;
+
+            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_hypernotify_cb,
+                    QEMU_PLUGIN_CB_R_REGS, (void*)hndata); 
+        }
         else
         {
 #ifdef TAINT_DEBUG_MEM_ACCESSES
@@ -202,7 +216,7 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     shadow_mem_size = ram_size + (0xf000 - 0x1000);
     shadow_mem = mmap(NULL, shadow_mem_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
 
-    // enable taint monitor
+    // enable taint monitor: start socket, connect peer, start processing commands
     static char taintmon_path[] = "taint_monitor.sock";
     int ret = pthread_create(&taint_monitor_thread, NULL, taint_monitor_loop_pthread, (void *)taintmon_path);
     if (ret)
@@ -216,11 +230,19 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
     
     init_hypercall_handler();
+    init_hypernotify_handler();
 
 #ifndef NDEBUG
     taint_logging_init();
 #endif
 
+    // Block until peer has sent resume command.
+    // In particular, the peer is connected and all its taint request
+    // have been processed.
+    // NOTE: "resume-recvd" can be set before we reach this function
+    // call, it will then return immediately
+    _DEBUG("MAIN: Waiting for resume command...\n");
+    monitor_wait_for_resume_command();
 
     return 0;
 }

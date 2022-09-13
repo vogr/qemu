@@ -8,7 +8,9 @@
 
 #include <qemu-plugin.h>
 
+#include "logging.h"
 #include "params.h"
+#include "monitor_lock.h"
 
 static int pack_ok(msgpack_packer * pk)
 {
@@ -198,6 +200,36 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
     return 0;
 }
 
+
+// no params!
+struct resume_params
+{
+    int _empty;
+};
+
+static int parseResumeCmd(msgpack_object_array cmd_arr, struct resume_params * p)
+{
+    if(cmd_arr.size != 1)
+        return 1;
+
+    return 0;
+}
+
+static int doResume(msgpack_packer * pk, struct resume_params p)
+{
+    fprintf(stderr, "resume()\n");
+
+    // signal to the main thread that it can resume execution
+    monitor_resume_recvd = true;
+    pthread_cond_signal(&monitor_resume_recvd_cv);
+
+    pack_ok(pk);
+
+    return 0;
+}
+
+
+
 #define CMD_CMP(cmd, str) \
     ((sizeof(str) - 1 == cmd.size) && ((memcmp(cmd.ptr, str, sizeof(str) - 1) == 0)))
 
@@ -254,6 +286,17 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
         else
             ret = doGetTaintReg(pk, p);
     }
+    else if (CMD_CMP(cmd, "resume"))
+    {
+        // notify main thread that resumption can happen
+        // this command should follow a "notify" sent by the main
+        // thread to the controller upon 
+        struct resume_params p = {0};
+        if (parseResumeCmd(cmd_arr, &p))
+            ret = 1;
+        else
+            ret = doResume(pk, p);
+    }
     else
     {
         fprintf(stderr, "Warning: skipping request, invalid or inexistant command in array.\n");
@@ -285,9 +328,11 @@ static int obj_is_list_of_cmds(msgpack_object obj)
 
 static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
 {
-    fprintf(stderr, "Handling command:\n");
-    msgpack_object_print(stderr, obj);
-    fprintf(stderr, "\n");
+#ifndef NDEBUG
+    _DEBUG("MON: Handling command:\n");
+    msgpack_object_print(taintlog_fp, obj);
+    fprintf(taintlog_fp, "\n");
+#endif
 
     /*
      * The serialized object can either be a command (=a list), or a list

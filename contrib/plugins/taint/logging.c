@@ -1,17 +1,16 @@
 #include "logging.h"
 
-#include <stdio.h>
 #include <stdarg.h>
 #include <unistd.h>
 
 static char taint_logfile[] = "taint.log";
-static FILE * taint_fp = 0;
+FILE * taintlog_fp = 0;
 
 
 int taint_logging_init(void)
 {
-    taint_fp = fopen(taint_logfile, "w");
-    if (! taint_fp)
+    taintlog_fp = fopen(taint_logfile, "w");
+    if (! taintlog_fp)
     {
         perror("Error opening taint logfile:");
         fprintf(stderr, "Will not log taint events.\n");
@@ -22,15 +21,15 @@ int taint_logging_init(void)
 
 int taint_logging_stop(void)
 {
-    if (taint_fp)
+    if (taintlog_fp)
     {
-        int ret = fclose(taint_fp);
+        int ret = fclose(taintlog_fp);
         if(ret)
         {
             perror("Error closing taint logfile:");
             return 1;
         }
-        taint_fp = 0;
+        taintlog_fp = 0;
 
         if(unlink(taint_logfile) < 0)
         {
@@ -45,11 +44,11 @@ void taint_log(char const * format, ...)
 {
     va_list arglist = {0};
     va_start(arglist, format);
-    int ret = vfprintf(taint_fp, format, arglist);
+    int ret = vfprintf(taintlog_fp, format, arglist);
     if (ret < 0)
     {
         fprintf(stderr, "WARN: failed to write to the taint logfile.");
     }
-    fflush(taint_fp);
-    fsync(fileno(taint_fp));
+    fflush(taintlog_fp);
+    fsync(fileno(taintlog_fp));
 }

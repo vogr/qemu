@@ -32,7 +32,7 @@ CFLAGS += -fPIC -Wall $(filter -W%, $(QEMU_CFLAGS))
 CFLAGS += $(if $(findstring no-psabi,$(QEMU_CFLAGS)),-Wpsabi)
 CFLAGS += -I$(SRC_PATH)/include/qemu
 
-CFLAGS += -g
+CFLAGS += -g -O2
 
 all: $(SONAMES)
 
@@ -44,10 +44,10 @@ lib%.so: %.o
 
 
 TAINT_BUILD_DIR := $(CURDIR)/taint
-TAINT_OBJS := taint/hypercall.o taint/logging.o taint/monitor.o taint/params.o taint/propagate.o taint/regs.o taint/taint.o taint/taint_requests.o
+TAINT_OBJS := taint/hypercall.o taint/hypernotify.o taint/logging.o taint/monitor.o taint/monitor_lock.o taint/params.o taint/propagate.o taint/regs.o taint/taint.o taint/taint_requests.o
 
 RISCV_XLEN?=64
-CFLAGS_TAINT := -DRISCV_XLEN=$(RISCV_XLEN) -DNDEBUG
+CFLAGS_TAINT := -DRISCV_XLEN=$(RISCV_XLEN)
 
 LDLIBS_TAINT :=
 LDLIBS_TAINT += -lmsgpackc
