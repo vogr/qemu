@@ -373,7 +373,7 @@ static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate ADD(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate ADD(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -384,7 +384,7 @@ static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
     target_ulong imm = SIGN_EXTEND(imm0_11, 11);
 
-    _DEBUG("Propagate ADDI(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("Propagate ADDI(r%d=0x%" PRIxXLEN ",imm=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, v1, imm, rd);
 
     target_ulong t1 = shadow_regs[rs1];
 
@@ -422,7 +422,7 @@ static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SUB(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate SUB(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -455,7 +455,7 @@ static void propagate_taint_AND(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate AND(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate AND(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 
@@ -477,7 +477,7 @@ static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     target_ulong tout = t1 & imm;
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate ANDI(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("Propagate ANDI(r%d=0x%" PRIxXLEN ",imm=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, v1, imm, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
 
 
@@ -511,7 +511,7 @@ static void propagate_taint_OR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, u
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate OR(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate OR(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -533,7 +533,7 @@ static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     shadow_regs[rd] = tout;
 
 
-    _DEBUG("Propagate ORI(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("Propagate ORI(r%d=0x%" PRIxXLEN ",imm=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, v1, imm, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
 
 }
@@ -621,7 +621,7 @@ static void propagate_taint_SLL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SLL(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate SLL(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -672,7 +672,7 @@ static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SRL(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate SRL(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -724,7 +724,7 @@ static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SRA(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate SRA(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -804,7 +804,7 @@ static void propagate_taint_SLTU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     target_ulong tout = taint_result__sltu(vals.v1, vals.v2, t1, t2);
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SLTU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate SLTU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -821,7 +821,7 @@ static void propagate_taint_SLTIU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SLTIU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("Propagate SLTIU(r%d=0x%" PRIxXLEN ",imm=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1, rs1, imm, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
 
 
@@ -864,7 +864,7 @@ static void propagate_taint_SLT(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     target_ulong tout = taint_result__slt(vals.v1, vals.v2, t1, t2);
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SLT(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate SLT(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 
 }
@@ -881,7 +881,7 @@ static void propagate_taint_SLTI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SLTIU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("Propagate SLTIU(r%d=0x%" PRIxXLEN ",imm=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, v1, imm, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
 }
 
@@ -954,7 +954,7 @@ static void propagate_taint_MUL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate MUL(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate MUL(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -969,7 +969,7 @@ static void propagate_taint_MULH(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate MULH(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate MULH(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -984,7 +984,7 @@ static void propagate_taint_MULHSU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate MULHSU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate MULHSU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -999,7 +999,7 @@ static void propagate_taint_MULHU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate MULHU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate MULHU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -1014,7 +1014,7 @@ static void propagate_taint_DIV(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate DIV(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate DIV(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -1029,7 +1029,7 @@ static void propagate_taint_DIVU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate DIVU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate DIVU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -1044,7 +1044,7 @@ static void propagate_taint_REM(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate REM(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate REM(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -1059,7 +1059,7 @@ static void propagate_taint_REMU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate REMU(0x%" PRIxXLEN ",0x%" PRIxXLEN ") -> r%" PRIu8 "\n", vals.v1, vals.v2, rd);
+    _DEBUG("Propagate REMU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
