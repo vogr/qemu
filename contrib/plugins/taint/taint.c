@@ -203,6 +203,9 @@ QEMU_PLUGIN_EXPORT
 int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
                         int argc, char **argv)
 {
+#ifndef NDEBUG
+    taint_logging_init();
+#endif
 
     /* initialize shadow state */
     // allocate memory for the shadow memory
@@ -232,9 +235,7 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
     init_hypercall_handler();
     init_hypernotify_handler();
 
-#ifndef NDEBUG
-    taint_logging_init();
-#endif
+
 
     // Block until peer has sent resume command.
     // In particular, the peer is connected and all its taint request
