@@ -447,7 +447,10 @@ void qemu_plugin_get_register_values(qemu_cpu_state pcs, size_t n_registers, int
     for(size_t i = 0 ; i < n_registers ; i++)
     {
         int regid = register_ids[i];
-        dest[i] = regs[regid];
+        if (regid < 32)
+            dest[i] = regs[regid];
+        else if (regid == 32)
+            dest[i] = env->pc;
     }
 
 #else
