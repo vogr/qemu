@@ -12,6 +12,7 @@ static_assert(RISCV_XLEN == 64 || RISCV_XLEN == 32, "RISCV_XLEN must be defined 
     typedef int64_t target_long;
     #define TARGET_ULONG_MAX UINT64_MAX
     #define PRIxXLEN PRIx64
+    #define SHIFTS_SHAMT_SIZE 6
 #elif RISCV_XLEN == 32
     #define TARGET_RISCV32 1
     #define XLEN 32
@@ -19,4 +20,5 @@ static_assert(RISCV_XLEN == 64 || RISCV_XLEN == 32, "RISCV_XLEN must be defined 
     typedef int32_t target_long;
     #define TARGET_ULONG_MAX UINT32_MAX
     #define PRIxXLEN PRIx32
+    #define SHIFTS_SHAMT_SIZE 5
 #endif

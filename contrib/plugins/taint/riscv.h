@@ -60,7 +60,8 @@ static inline target_ulong SIGN_EXTEND(target_ulong N, int k)
 #define INSTR32_S_IMM_5_11_GET(instr) ((instr >>  25) & MASK(7))
 #define INSTR32_U_IMM_12_31_GET(instr) ((instr >>  12) & MASK(20))
 
-#define INSTR32_I_SHAMT_GET(instr) ((instr >>  20) & MASK(5))
+#define INSTR32_I_SHAMT_GET_FIVE(instr) ((instr >>  20) & MASK(5))
+#define INSTR32_I_SHAMT_GET_SIX(instr) ((instr >>  20) & MASK(6))
 
 #define INSTR32_S_IMM_0_11_GET(instr) ((INSTR32_S_IMM_5_11_GET(instr) << 5) | INSTR32_S_IMM_0_4_GET(instr))
 
@@ -105,7 +106,7 @@ enum {
     //custom                   = 0b11110,
 };
 
-/** RV64I decoding **/
+/** RV32I/RV64I decoding **/
 
 // Loads
 enum {
@@ -138,10 +139,17 @@ enum {
     INSTR32_F3_SRLI__SRAI = 0b101,
 };
 
+
 enum {
-    INSTR32_F6_SLLI = 0b000000,
-    INSTR32_F6_SRLI = 0b000000,
-    INSTR32_F6_SRAI = 0b010000,
+    INSTR32_F7_SLLI_RV32 = 0b0000000,
+    INSTR32_F7_SRLI_RV32 = 0b0000000,
+    INSTR32_F7_SRAI_RV32 = 0b0100000,
+};
+
+enum {
+    INSTR32_F6_SLLI_RV64 = 0b000000,
+    INSTR32_F6_SRLI_RV64 = 0b000000,
+    INSTR32_F6_SRAI_RV64 = 0b010000,
 };
 
 
@@ -180,6 +188,37 @@ enum {
     INSTR32_F7_REMU   = 0b0000001,
 };
 
+
+// Register-immediate wordsize ops
+
+enum {
+    INSTR32_F3_ADDIW = 0b000,
+    INSTR32_F3_SLLIW = 0b001,
+    INSTR32_F3_SRLIW_SRAIW = 0b101,
+};
+
+enum {
+    // INSTR32_F7_ADDIW -> no f7, imm[11:0] instead
+    INSTR32_F7_SLLIW = 0b0000000,
+    INSTR32_F7_SRLIW = 0b0000000,
+    INSTR32_F7_SRAIW = 0b0100000,
+};
+
+// Register-register wordsize ops
+
+enum {
+    INSTR32_F3_ADDW_SUBW = 0b000,
+    INSTR32_F3_SLLW = 0b001,
+    INSTR32_F3_SRLW_SRAW = 0b101,
+};
+
+enum {
+    INSTR32_F7_ADDW = 0b0000000,
+    INSTR32_F7_SUBW = 0b0100000,
+    INSTR32_F7_SLLW = 0b0000000,
+    INSTR32_F7_SRLW = 0b0000000,
+    INSTR32_F7_SRAW = 0b0100000,
+};
 
 /***
  * 16 bits long instructions (compressed)
