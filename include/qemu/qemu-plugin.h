@@ -591,7 +591,7 @@ uint64_t qemu_plugin_get_max_ram_size(void);
 typedef void* qemu_cpu_state;
 
 /**
- * qemu_plugin_outs() - get abtract handle to the CPUState
+ * qemu_plugin_get_cpu() - get abtract handle to the CPUState
  * @vcpu_idx: index of the cpu, as passed to the callbacks 
  */
 qemu_cpu_state qemu_plugin_get_cpu(int vcpu_idx);
