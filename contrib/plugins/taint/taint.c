@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 
 #include <pthread.h>
@@ -130,14 +131,16 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         {
             case 16:
             {
-                uint16_t * ins16_ptr = (uint16_t*)instr_ptr;
-                ins_data->instr = *ins16_ptr;
+                uint16_t ins16 = 0;
+                memcpy(&ins16, instr_ptr, 2);
+                ins_data->instr = ins16;
                 break;
             }
             case 32:
             {
-                uint32_t * ins32_ptr = (uint32_t*)instr_ptr;
-                ins_data->instr = *ins32_ptr;
+                uint32_t ins32 = 0;
+                memcpy(&ins32, instr_ptr, 4);
+                ins_data->instr = ins32;
                 break;
             }
             default:
