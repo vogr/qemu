@@ -398,18 +398,13 @@ static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 }
 
 
-static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static target_ulong propagate_taint__sub(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
 {
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
+    target_ulong v1_with_ones = v1 | t1;
+    target_ulong v2_with_ones = v2 | t2;
 
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    
-    target_ulong v1_with_ones = vals.v1 | t1;
-    target_ulong v2_with_ones = vals.v2 | t2;
-
-    target_ulong v1_with_zeros = vals.v1 & (~t1);
-    target_ulong v2_with_zeros = vals.v2 & (~t2);
+    target_ulong v1_with_zeros = v1 & (~t1);
+    target_ulong v2_with_zeros = v2 & (~t2);
 
     // Taint:
     // 1. taint directly from input bit to the corresponding output bit
@@ -419,6 +414,17 @@ static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     target_ulong diff_ones_zeros = v1_with_ones - v2_with_zeros;
 
     target_ulong tout = t1 | t2 | (diff_zero_ones ^ diff_ones_zeros);
+    return tout;
+}
+
+static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong tout = propagate_taint__sub(vals.v1, vals.v2, t1, t2);
 
     shadow_regs[rd] = tout;
 
@@ -655,7 +661,7 @@ static void propagate_taint_SLLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     shadow_regs[rd] = tout;
 
-    _DEBUG("Propagate SRLI(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("Propagate SLLI(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
 
 
@@ -1328,12 +1334,225 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
     }
 }
 
+/***
+ * Operations on 32 lower bits of registers (RV64 only)
+ ***/
+
+// We use target_ulong instead of uint32_t as this is what the _impl functions expect
+struct taint_vals_w {
+    target_ulong v1;
+    target_ulong v2;
+    target_ulong t1;
+    target_ulong t2;
+};
+
+
+// FIXME: Refactor, all these are very generic, could probably
+// use a common implementation. In particular SRL/SLL/SRA (and imm variants)
+// are almost exactly the same!
+
+static struct taint_vals_w truncate_vals_taint(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+{
+    struct taint_vals_w ret = {
+        .v1 = SIGN_EXTEND(v1, 31),
+        .v2 = SIGN_EXTEND(v2, 31),
+        .t1 = SIGN_EXTEND(t1, 31),
+        .t2 = SIGN_EXTEND(t2, 31),
+    };
+    return ret;
+}
+
+static void propagate_taint_ADDW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    target_ulong tout_low = propagate_taint__add(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate ADDW(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
+
+}
+
+
+
+static void propagate_taint_ADDIW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+{
+    // Acceptable precision is important bc "mov rd,rs" is just an alias for "addi rd,rs,0"
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong imm = SIGN_EXTEND(imm0_11, 11);
+
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    target_ulong tout_low = propagate_taint__add(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate ADDIW(r%d=0x%" PRIxXLEN ",imm=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
+}
+
+static void propagate_taint_SUBW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+    
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    target_ulong tout_low = propagate_taint__sub(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SUBW(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
+}
+
+
+static void propagate_taint_SLLW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    // /!\ SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint_sll_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLLW(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
+
+}
+
+
+
+static void propagate_taint_SLLIW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    // /!\ SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint_sll_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SLLIW(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
+
+
+}
+
+
+
+static void propagate_taint_SRLW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    // /!\ SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint_srl_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRLW(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
+
+}
+
+
+
+static void propagate_taint_SRLIW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    // /!\ SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint_srl_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRLIW(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
+
+
+}
+
+
+static void propagate_taint_SRAW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    // /!\ SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint_sra_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRAW(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
+
+}
+
+
+
+static void propagate_taint_SRAIW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    // /!\ SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint_sra_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+    shadow_regs[rd] = tout;
+
+    _DEBUG("Propagate SRLAW(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
+    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
+}
+
 
 /***
  * Opcode dispatch (uncompressed instructions, wordsize instructions -- RV64I only).
  ***/
 
-#if 0
 static void propagate_taint32__reg_imm_op32(unsigned int vcpu_idx, uint32_t instr)
 {
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
@@ -1392,6 +1611,7 @@ static void propagate_taint32__reg_imm_op32(unsigned int vcpu_idx, uint32_t inst
 
 static void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t instr)
 {
+    // FIXME: Support for M extension (MULW, DIVW, ...)
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
     uint8_t f7 = INSTR32_GET_FUNCT7(instr);
 
@@ -1443,7 +1663,6 @@ static void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t inst
         }
     }
 }
-#endif
 
 
 static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
@@ -1479,8 +1698,7 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         break;
 
     case INSTR32_OPCODE_HI_OP_IMM_32:
-        //FIXME: wordsize regimm ops in RV64
-        //       -> sign extended so easy to implement on top of dw size
+        propagate_taint32__reg_imm_op32(vcpu_idx, instr);
         break;
     
     case INSTR32_OPCODE_HI_STORE:
@@ -1502,9 +1720,8 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         break;
 
     case INSTR32_OPCODE_HI_OP_32:
-        //FIXME: wordsize reg reg ops in RV64
-        // don't forget M extension (MULW, DIVW, ...)
-        //       -> sign extended so easy to implement on top of dw size
+        // FIXME: Support for M extension (MULW, DIVW, ...)
+        propagate_taint32__reg_reg_op32(vcpu_idx, instr);
         break;
 
     case INSTR32_OPCODE_HI_MADD:
