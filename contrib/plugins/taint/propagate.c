@@ -1665,6 +1665,36 @@ static void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t inst
 }
 
 
+
+static void propagate_taint_JAL(unsigned int vcpu_idx, uint32_t instr)
+{
+    // unconditionnal jump: 
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint32_t imm20_0 = INSTR32_J_IMM_0_20_GET(instr);
+    uint32_t imm = SIGN_EXTEND(imm20_0, 20);
+
+    uint32_t tpc = shadow_pc;
+    uint32_t pc = get_one_reg_value(vcpu_idx, 32);
+
+    // 1. The offset is sign-extended and added to the address of the
+    // jump instruction to form the jump target address.
+
+    uint32_t tout_pc = propagate_taint__add(pc, imm, tpc, 0);
+
+
+    // 2. JAL stores the address of the instruction following the
+    // jump (pc+4) into register rd.
+
+    uint32_t tout_rd = propagate_taint__add(pc, 4, tpc, 0);
+
+    shadow_pc = tout_pc;
+    shadow_regs[rd] = tout_rd;
+
+    _DEBUG("Propagate JAL(pc=0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", pc, imm, rd);
+    _DEBUG("tpc= 0x%" PRIxXLEN " -> tpc=0x" PRIxXLEN "\n", tpc, tout_pc);
+    _DEBUG("                     -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rd, tout_rd);
+}
+
 static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
 {
     #ifndef NDEBUG
@@ -1736,11 +1766,14 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         break;
     
     case INSTR32_OPCODE_HI_JALR:
-    case INSTR32_OPCODE_HI_JAL:
         // no control flow taint BUT
         // - need to clear taint in rd
         // - need to taint to pc if reg input is tainted
         // FIXME: clear rd taint
+        break;
+
+    case INSTR32_OPCODE_HI_JAL:
+        propagate_taint_JAL(vcpu_idx, instr);
         break;
 
     case INSTR32_OPCODE_HI_SYSTEM:

@@ -60,10 +60,33 @@ static inline target_ulong SIGN_EXTEND(target_ulong N, int k)
 #define INSTR32_S_IMM_5_11_GET(instr) ((instr >>  25) & MASK(7))
 #define INSTR32_U_IMM_12_31_GET(instr) ((instr >>  12) & MASK(20))
 
+#define INSTR32_J_IMM_20_GET(instr) ((instr >> 31) & 1)
+#define INSTR32_J_IMM_10_1_GET(instr) ((instr >> 21) & MASK(10))
+#define INSTR32_J_IMM_11_GET(instr) ((instr >> 20) & 1)
+#define INSTR32_J_IMM_19_12_GET(instr) ((instr >> 12) & MASK(8))
+
+
+static inline uint32_t INSTR32_S_IMM_0_11_GET(uint32_t instr)
+{
+    uint32_t ret =
+        (INSTR32_S_IMM_5_11_GET(instr) << 5) |
+        INSTR32_S_IMM_0_4_GET(instr);
+    return ret;
+}
+
+
+static inline uint32_t INSTR32_J_IMM_0_20_GET(uint32_t instr)
+{
+    uint32_t ret = 
+        (INSTR32_J_IMM_10_1_GET(instr) << 1) |
+        (INSTR32_J_IMM_11_GET(instr) << 11) |
+        (INSTR32_J_IMM_19_12_GET(instr) << 12) |
+        (INSTR32_J_IMM_20_GET(instr) << 20);
+    return ret;
+}
+
 #define INSTR32_I_SHAMT_GET_FIVE(instr) ((instr >>  20) & MASK(5))
 #define INSTR32_I_SHAMT_GET_SIX(instr) ((instr >>  20) & MASK(6))
-
-#define INSTR32_S_IMM_0_11_GET(instr) ((INSTR32_S_IMM_5_11_GET(instr) << 5) | INSTR32_S_IMM_0_4_GET(instr))
 
 
 /** Opcodes for uncompressed 32 bits instructions **/
