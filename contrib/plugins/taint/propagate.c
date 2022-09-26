@@ -1607,8 +1607,6 @@ static void propagate_taint32__reg_imm_op32(unsigned int vcpu_idx, uint32_t inst
     }
 }
 
-
-
 static void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t instr)
 {
     // FIXME: Support for M extension (MULW, DIVW, ...)
@@ -1983,6 +1981,11 @@ static void propagate_taint_CLUI_CADDI16SP(unsigned int vcpu_idx, uint16_t instr
     }
 }
 
+static void propagate_taint_CJ(unsigned int vcpu_idx, uint16_t instr)
+{
+    // C.J does not propagate any taint architecturally.
+}
+
 
 /* opcode dispatch */
 static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
@@ -2057,8 +2060,12 @@ static void propagate_taint16(unsigned int vcpu_idx, uint16_t instr)
         propagate_taint_CLUI_CADDI16SP(vcpu_idx, instr);
         break;
     }
-    case INSTR16_RV64_OPCODE_MISC_ALU:
     case INSTR16_RV64_OPCODE_J:
+    {
+        propagate_taint_CJ(vcpu_idx, instr);
+        break;
+    }
+    case INSTR16_RV64_OPCODE_MISC_ALU:
     case INSTR16_RV64_OPCODE_BEQZ:
     case INSTR16_RV64_OPCODE_BNEZ:
     case INSTR16_RV64_OPCODE_SLLI:

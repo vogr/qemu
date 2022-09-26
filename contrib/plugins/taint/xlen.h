@@ -5,6 +5,10 @@
 
 static_assert(RISCV_XLEN == 64 || RISCV_XLEN == 32, "RISCV_XLEN must be defined to be equal to 32 or 64!");
 
+#ifndef RISCV_XLEN
+#define RISCV_XLEN 64
+#endif
+
 #if RISCV_XLEN == 64
     #define TARGET_RISCV64 1
     #define XLEN 64

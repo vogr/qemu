@@ -23,13 +23,6 @@ static int pack_ok(msgpack_packer * pk)
     return 0;
 }
 
-struct set_taint_range_params
-{
-    uint64_t start;
-    uint64_t length;
-    char t8;
-};
-
 static int parseSetTaintPaddrRangeCmd(msgpack_object_array cmd_arr, struct set_taint_range_params * p)
 {
     if(cmd_arr.size != 4)
@@ -67,6 +60,19 @@ static int doTaintPaddrRange(msgpack_packer * pk, struct set_taint_range_params 
     memset(shadow_mem + start_r, p.t8, p.length);
 
     pack_ok(pk);
+
+    return 0;
+}
+
+// This function is called typically due to hypercalls 0x480-0x49F, where no command is provided explicitly.
+int taint_paddr_range_explicit(struct set_taint_range_params p)
+{
+    fprintf(stderr, "taint_paddr_range_explicit(0x%" PRIx64 ", %" PRIu64 ", 0x%" PRIx8")\n", p.start, p.length, p.t8);
+
+    uint64_t start_r = 0;
+    qemu_plugin_paddr_to_ram_addr(p.start, &start_r);
+
+    memset(shadow_mem + start_r, p.t8, p.length);
 
     return 0;
 }

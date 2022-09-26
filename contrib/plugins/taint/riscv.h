@@ -253,13 +253,10 @@ enum {
 // see https://en.wikichip.org/wiki/risc-v/registers
 #define REG_OF_COMPRESSED(x) ((uint8_t)x + 8)
 
-
-#define INSTR16_CIW_RDC_GET(instr) ((instr >>  2) & MASK(3))
-#define INSTR16_CIW_IMM_GET(instr) ((instr >>  5) & MASK(8))
-
 #define INSTR16_CIW_RDC_GET(instr) ((instr >>  2) & MASK(3))
 #define INSTR16_CIW_IMM_LO_GET(instr) ((instr >>  5) & MASK(2))
 #define INSTR16_CIW_IMM_HI_GET(instr) ((instr >>  10) & MASK(3))
+#define INSTR16_CIW_IMM_GET(instr) ((instr >>  5) & MASK(8))
 
 
 #define INSTR16_CL_RDC_GET(instr) ((instr >>  2) & MASK(3))
