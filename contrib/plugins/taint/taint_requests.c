@@ -182,8 +182,6 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
 {
     fprintf(stderr, "doGetTaintReg(%" PRIu64 ")\n", p.reg);
 
-    // FIXME: locking! Or really? Could also say:
-    // accessing during execution is UB
     target_ulong t = shadow_regs[p.reg];
 
 
@@ -200,6 +198,87 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
     return 0;
 }
 
+
+struct get_regs_params
+{
+    int * regs;
+    size_t nregs;
+    unsigned int vcpu_idx;
+};
+
+static int parseGetRegsCmd(msgpack_object_array cmd_arr, struct get_regs_params * p)
+{
+    if(cmd_arr.size != 3)
+        return 1;
+    
+    msgpack_object p1 = cmd_arr.ptr[1];
+    if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        return 1;
+    p->vcpu_idx = p1.via.u64;
+
+    msgpack_object p2 = cmd_arr.ptr[2];
+    if(p2.type != MSGPACK_OBJECT_ARRAY)
+        return 1;
+    msgpack_object_array regs = p2.via.array;
+
+    int * regs2 = malloc(regs.size * sizeof(int));
+
+    for(int i = 0 ; i < regs.size ; i++)
+    {
+        msgpack_object r = regs.ptr[i];
+        if (r.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
+        {
+            return 1;
+        }
+        regs2[i] = r.via.u64;
+    }
+
+    p->nregs = regs.size;
+    p->regs = regs2;
+
+    return 0;
+}
+
+static void destroyGetRegsParams(struct get_regs_params * p)
+{
+    free(p->regs);
+    p->regs = NULL;
+}
+
+static int doGetRegs(msgpack_packer * pk, struct get_regs_params p)
+{
+    fprintf(stderr, "doGetReg(%u, [", p.vcpu_idx);
+    
+    for (int i = 0 ; i < p.nregs ; i++)
+    {
+        fprintf(stderr, "%d", p.regs[i]);
+        if (i < p.nregs - 1) fprintf(stderr, ",");
+    }
+    fprintf(stderr, "])");
+
+    target_ulong * v = malloc(p.nregs * sizeof(target_ulong));
+
+    qemu_cpu_state cs = qemu_plugin_get_cpu(p.vcpu_idx);
+    qemu_plugin_get_register_values(cs, p.nregs, p.regs, v);
+
+    // Append reply to the buffer
+    msgpack_pack_array(pk, 2);
+
+    // error code
+    msgpack_pack_int64(pk, 0);
+
+    // taint
+    msgpack_pack_array(pk, p.nregs);
+    for (int i = 0 ; i < p.nregs ; i++)
+    {
+        msgpack_pack_bin(pk, sizeof(target_ulong));
+        msgpack_pack_bin_body(pk, &v[i], sizeof(target_ulong));
+    }
+
+    free(v);
+
+    return 0;
+}
 
 // no params!
 struct resume_params
@@ -285,6 +364,17 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
             ret = 1;
         else
             ret = doGetTaintReg(pk, p);
+    }
+    else if (CMD_CMP(cmd, "get-regs"))
+    {
+        struct get_regs_params p = {0};
+        if (parseGetRegsCmd(cmd_arr, &p))
+            ret = 1;
+        else
+        {
+            ret = doGetRegs(pk, p);
+            destroyGetRegsParams(&p);
+        }
     }
     else if (CMD_CMP(cmd, "resume"))
     {
