@@ -29,7 +29,7 @@
 
 /***
  * Loads
- * 
+ *
  * FIXME: need to do vaddr->paddr translation. 2 options:
  * 1. Use the official plugin API: translation in mem cb callback
  *      + uses TLB data, so low overhead
@@ -77,7 +77,7 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
         else
         {
 
-        
+
 
             // NOTE: the loaded value is sign (/value for the U variants) extended
             // to XLEN bits before being stored in the register.
@@ -165,10 +165,10 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 
     target_ulong t1 = shadow_regs[rs1];
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    
+
     // The effective load address is obtained by adding register rs1 to
     // the sign-extended 12-bit offset.
-    
+
     // do the sign extension, interpret as signed
     target_long imm = SIGN_EXTEND(imm0_11, 11);
 
@@ -471,7 +471,7 @@ static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     target_ulong imm = SIGN_EXTEND(imm0_11, 11);
-    
+
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
     target_ulong t1 = shadow_regs[rs1];
 
@@ -598,7 +598,7 @@ static void propagate_taint_XORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 // SLL, SRL, SRA
 
 /*
-* Shifts 
+* Shifts
 *
 * eg left shift:
 * rd <- (uint)rs1 << rs2[0:X]
@@ -720,10 +720,10 @@ static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 static void propagate_taint_SRLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong t1 = shadow_regs[rs1]; 
+    target_ulong t1 = shadow_regs[rs1];
 
     target_ulong tout = propagate_taint_srl_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
-    
+
     shadow_regs[rd] = tout;
 
     _DEBUG("Propagate SRLI(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
@@ -785,10 +785,10 @@ static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
 {
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong t1 = shadow_regs[rs1]; 
+    target_ulong t1 = shadow_regs[rs1];
 
     target_ulong tout = propagate_taint_sra_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
-    
+
     shadow_regs[rd] = tout;
 
     _DEBUG("Propagate SRAI(0x%" PRIxXLEN ", imm=%0x" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
@@ -804,25 +804,25 @@ static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 /*
  * > SLT and SLTU perform signed and unsigned compares respectively, writing
  *   1 to rd if rs1 < rs2.
- * 
+ *
  * The taint output is 0 iff inverting the value of a tainted bit cannot change the order
  * of the comparison. Looking at the two cases (unsigned case):
- * 
+ *
  * (forall flips of tainted bits, rs1 with flips < rs2 with flips) iff (max({rs1 with flips}) < min({rs2 with flips})
  *          iff (rs1 with with tainted bits set to 1) < (rs2 with tainted bits set to 0)
- * 
+ *
  * (forall flips of tainted bits, rs1 with flips >= rs2 with flips) iff (min({rs1 with flips}) >= max({rs2 with flips})
  *          iff (rs1 with with tainted bits set to 0) >= (rs2 with tainted bits set to 1)
  *
  * For the signed case, the sign bit needs to be taken care of individually: if it is tainted, it is set to
  * 0 in the max, and to 1 in the min.
- * 
- * 
+ *
+ *
  * In the tainted case, only the lsb of rd is tainted.
  *
- * 
+ *
  * We reuse the same logic for SLTI/SLTIU
- * 
+ *
  * > SLTI (set less than immediate) places the value 1 in register rd if register rs1 is less than the sign-
  * extended immediate when both are treated as signed numbers, else 0 is written to rd. SLTIU is
  * similar but compares the values as unsigned numbers (i.e., the immediate is first sign-extended to
@@ -973,9 +973,9 @@ static void propagate_taint32_LUI(unsigned int vcpu_idx, uint32_t instr)
     // into bits 31–12 of register rd and places zero in the lowest 12 bits.
 
     // The 32-bit result is sign-extended to XLEN bits.
-    
+
     // Taint-wise: clears rd!
-    
+
     target_ulong imm31_0 = imm31_12 << 12;
     target_long imm = SIGN_EXTEND(imm31_0, 31);
 
@@ -1123,14 +1123,14 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
     // imm and f7/shamt bits overlap, only one should be used!
     uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
 
-    // /!\ shamt is read differently on RV32 and RV64!  
+    // /!\ shamt is read differently on RV32 and RV64!
     // this determines how many bits of the imm are read for dispatch
 #ifdef TARGET_RISCV64
     uint32_t f6 = INSTR32_GET_FUNCT7(instr) >> 1;
 #else
     uint32_t f7 = INSTR32_GET_FUNCT7(instr);
 #endif
-    
+
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
 
@@ -1210,7 +1210,7 @@ static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
             {
                 fprintf(stderr, "Malformed instruction, unknown f6/f7 for f3=SRLI_SRAI: 0x%" PRIx32 "\n", instr);
             }
-            
+
             break;
         }
         default:
@@ -1404,7 +1404,7 @@ static void propagate_taint_SUBW(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     target_ulong t2 = shadow_regs[rs2];
 
     struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    
+
     struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
 
     target_ulong tout_low = propagate_taint__sub(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
@@ -1557,9 +1557,9 @@ static void propagate_taint32__reg_imm_op32(unsigned int vcpu_idx, uint32_t inst
     uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
     uint32_t f7 = INSTR32_GET_FUNCT7(instr);
     // note that shamt is NOT sign extended ()
-    uint8_t shamt = INSTR32_I_SHAMT_GET_FIVE(instr); 
-    
-    
+    uint8_t shamt = INSTR32_I_SHAMT_GET_FIVE(instr);
+
+
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
 
@@ -1658,35 +1658,25 @@ static void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t inst
     }
 }
 
-
-
 static void propagate_taint_JAL(unsigned int vcpu_idx, uint32_t instr)
 {
-    // unconditionnal jump: 
-    uint8_t rd = INSTR32_RD_GET(instr);
-    uint32_t imm20_0 = INSTR32_J_IMM_0_20_GET(instr);
-    uint32_t imm = SIGN_EXTEND(imm20_0, 20);
-
-    uint32_t tpc = shadow_pc;
-    uint32_t pc = get_one_reg_value(vcpu_idx, 32);
-
-    // 1. The offset is sign-extended and added to the address of the
-    // jump instruction to form the jump target address.
-
-    uint32_t tout_pc = propagate_taint__add(pc, imm, tpc, 0);
+    // unconditionnal jump with an immediate.
+    // As we ignore the taint of the immediate for now, this has no architectural IFT impact.
+}
 
 
-    // 2. JAL stores the address of the instruction following the
-    // jump (pc+4) into register rd.
+static void propagate_taint_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+{
+    // unconditionnal jump with a source register + immediate.
+    // As we ignore the taint of the immediate for now, this has no architectural IFT impact.
 
-    uint32_t tout_rd = propagate_taint__add(pc, 4, tpc, 0);
+    target_ulong rs_shadowval = shadow_regs[rs1];
 
-    shadow_pc = tout_pc;
-    shadow_regs[rd] = tout_rd;
-
-    _DEBUG("Propagate JAL(pc=0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", pc, imm, rd);
-    _DEBUG("tpc= 0x%" PRIxXLEN " -> tpc=0x" PRIxXLEN "\n", tpc, tout_pc);
-    _DEBUG("                     -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rd, tout_rd);
+    if (rs_shadowval) {
+        if (~shadow_pc)
+            _DEBUG("PC became tainted by JAL at pc=0x%" PRIxXLEN "\n", get_one_reg_value(vcpu_idx, 32));
+        shadow_pc = -1ULL;
+    }
 }
 
 static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
@@ -1707,7 +1697,7 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
     case INSTR32_OPCODE_HI_LOAD:
         propagate_taint32__load(vcpu_idx, instr);
         break;
-    
+
     case INSTR32_OPCODE_HI_LOAD_FP: // FIXME: no support for floats yet
     case INSTR32_OPCODE_HI_MISC_MEM: // FIXME: what is misc mem?
         break;
@@ -1723,7 +1713,7 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
     case INSTR32_OPCODE_HI_OP_IMM_32:
         propagate_taint32__reg_imm_op32(vcpu_idx, instr);
         break;
-    
+
     case INSTR32_OPCODE_HI_STORE:
         propagate_taint32__store(vcpu_idx, instr);
         break;
@@ -1757,7 +1747,7 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
     case INSTR32_OPCODE_HI_BRANCH:
         // no control flow taint
         break;
-    
+
     case INSTR32_OPCODE_HI_JALR:
         // no control flow taint BUT
         // - need to clear taint in rd
@@ -1789,18 +1779,18 @@ static void propagate_taint_CADDI4SPN(unsigned int vcpu_idx, uint16_t instr)
     uint8_t rdc = INSTR16_CIW_RDC_GET(instr);
     uint8_t rd = REG_OF_COMPRESSED(rdc);
 
-    uint8_t nzuimm_5_4 = (instr >> 11) & MASK(2); 
+    uint8_t nzuimm_5_4 = (instr >> 11) & MASK(2);
     uint8_t nzuimm_9_6 = (instr >> 7) & MASK(4);
-    uint8_t nzuimm_2 = (instr >> 6) & 1; 
+    uint8_t nzuimm_2 = (instr >> 6) & 1;
     uint8_t nzuimm_3 = (instr >> 5) & 1;
 
     // zero extended non zero immediate
-    uint16_t nzuimm = 
+    uint16_t nzuimm =
         (nzuimm_2 << 2) |
         (nzuimm_3 << 3) |
         (nzuimm_5_4 << 4) |
         (nzuimm_9_6 << 6) ;
-    
+
     #ifndef NDEBUG
     if (nzuimm == 0)
     {
@@ -1814,7 +1804,7 @@ static void propagate_taint_CADDI4SPN(unsigned int vcpu_idx, uint16_t instr)
     target_ulong t1 = shadow_regs[2];
 
     target_ulong tout = propagate_taint__add(v1, nzuimm, t1, 0);
-    
+
     shadow_regs[rd] = tout;
 }
 
@@ -1933,20 +1923,20 @@ static void propagate_taint_CLI(unsigned int vcpu_idx, uint16_t instr)
 static void propagate_taint_CLUI_CADDI16SP(unsigned int vcpu_idx, uint16_t instr)
 {
     uint8_t rd = INSTR16_C1_RD_GET(instr);
-    // rd == x0 reserved 
+    // rd == x0 reserved
     assert(rd != 0);
 
     if (rd == 2)
     {
         // rd == x2 => C.ADDI16SP
         // x2 <- x2 + nzimm
-        
+
         uint16_t nzimm0_9 =
             0b00000 |
             ((instr >> 6) & 0x1) << 4 |
             ((instr >> 2) & 0x1) << 5 |
-            ((instr >> 5) & 0x1) << 6 |  
-            ((instr >> 3) & 0x11) << 7 |  
+            ((instr >> 5) & 0x1) << 6 |
+            ((instr >> 3) & 0x11) << 7 |
             ((instr >> 12) & 0x1) << 9
         ;
 
@@ -1959,7 +1949,7 @@ static void propagate_taint_CLUI_CADDI16SP(unsigned int vcpu_idx, uint16_t instr
 
         target_ulong tout = propagate_taint__add(v1, nzimm, t1, 0);
 
-        shadow_regs[rd] = tout; 
+        shadow_regs[rd] = tout;
 
         _DEBUG("Propagate C.ADDI16SP(0x%" PRIxXLEN ") -> r%" PRIu8 "\n", v1,  rd);
         _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rd, t1, rd, tout);
