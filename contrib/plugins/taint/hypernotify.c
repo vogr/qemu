@@ -100,13 +100,15 @@ void vcpu_insn_hypernotify_cb(unsigned int vcpu_index, void *userdata)
     // prepare notification to send
     msgpack_sbuffer_clear(&packing_sbuf);
 
-    msgpack_pack_array(&pk, 2);
+    // 3 elements: the command, the vcpu and the hypercall index.
+    msgpack_pack_array(&pk, 3);
 
     // string
     char cmd[] = "notify";
     msgpack_pack_str(&pk, sizeof(cmd) - 1);
     msgpack_pack_str_body(&pk, cmd, sizeof(cmd) - 1);
 
+    msgpack_pack_int(&pk, vcpu_index);
     msgpack_pack_int(&pk, id);
 
     // we can send on the monitor socket without locking:
