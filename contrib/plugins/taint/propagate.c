@@ -1665,11 +1665,12 @@ static void propagate_taint_JAL(unsigned int vcpu_idx, uint32_t instr)
 }
 
 
-static void propagate_taint_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
 {
-    // unconditionnal jump with a source register + immediate.
-    // As we ignore the taint of the immediate for now, this has no architectural IFT impact.
-
+    // Two actions:
+    // - Clears the taint in rd
+    shadow_regs[rd] = 0;
+    // - Taints the PC if rs is tainted
     target_ulong rs_shadowval = shadow_regs[rs1];
 
     if (rs_shadowval) {
@@ -1749,10 +1750,9 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         break;
 
     case INSTR32_OPCODE_HI_JALR:
-        // no control flow taint BUT
-        // - need to clear taint in rd
-        // - need to taint to pc if reg input is tainted
-        // FIXME: clear rd taint
+        uint8_t rd = INSTR32_RD_GET(instr);
+        uint8_t rs1 = INSTR32_RS1_GET(instr);
+        propagate_taint_JALR(vcpu_idx, rd, rs1);
         break;
 
     case INSTR32_OPCODE_HI_JAL:
