@@ -92,6 +92,9 @@ void vcpu_insn_hypernotify_cb(unsigned int vcpu_index, void *userdata)
     /*
      * send a notification and wait for a "resume" command
      * before resuming the emulation.
+     * 
+     * Notification
+     * ["notify", vcpu_index, notify_idx]
      */
 
     struct HypernotifyData * hyp_data = userdata;
@@ -100,12 +103,14 @@ void vcpu_insn_hypernotify_cb(unsigned int vcpu_index, void *userdata)
     // prepare notification to send
     msgpack_sbuffer_clear(&packing_sbuf);
 
-    msgpack_pack_array(&pk, 2);
+    msgpack_pack_array(&pk, 3);
 
     // string
     char cmd[] = "notify";
     msgpack_pack_str(&pk, sizeof(cmd) - 1);
     msgpack_pack_str_body(&pk, cmd, sizeof(cmd) - 1);
+
+    msgpack_pack_unsigned_int(&pk, vcpu_index);
 
     msgpack_pack_int(&pk, id);
 
@@ -113,8 +118,8 @@ void vcpu_insn_hypernotify_cb(unsigned int vcpu_index, void *userdata)
     // no interleaving should happen, as the hypernotify
     // instruction can only be encountered during emulation
     // and a client mustn't use taint control during the emulation
-    fprintf(stderr, "Send notify(%d) \n", id);
-    _DEBUG("HN: Send notify %d\n", id)
+    fprintf(stderr, "Send notify(vcpu=%u, id=%d) \n", vcpu_index, id);
+    _DEBUG("HN: Send notifyvcpu=%u, id=%d) \n", vcpu_index, id);
     if(monitor_sendall(packing_sbuf.size, packing_sbuf.data))
     {
         perror("Error sending notification over monitor socket");
