@@ -956,10 +956,6 @@ static void propagate_taint32_AUIPC(unsigned int vcpu_idx, uint32_t instr)
     // do the sign extension, interpret as signed
     target_long imm = SIGN_EXTEND(imm31_0, 31);
 
-    //FIXME: need an additionnal API to get pc!
-    //FIXME: use the add propagation logic to propagate pc taint to rd
-    //FIXME: for now assume pc not tainted
-
     target_ulong tout = 0;
     shadow_regs[rd] = tout;
 
@@ -1721,7 +1717,6 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         break;
 
     case INSTR32_OPCODE_HI_AUIPC:
-        //FIXME: AUIPC does not read pc taint!
         propagate_taint32_AUIPC(vcpu_idx, instr);
         break;
 
