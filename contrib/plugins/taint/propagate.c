@@ -18,7 +18,7 @@
 // that the host and target have the same endianess. For our purposes, all our
 // platforms are little-endian (ie x86 host and RISCV target).
 
-
+// NOTE: Floating-point arithmetic tainting is conserative, for example FMADD (r1 x r2) + r3 will be tainted completely if any of the input registers is tainted.
 
 
 /****************************
@@ -190,7 +190,6 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
 /***
  * FP loads
  ***/
-
 enum FP_LOAD_TYPE {
     FP_LOAD_FLW, FP_LOAD_FLD
 };
@@ -208,7 +207,7 @@ static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, targ
         // tainted ptr implies fully tainted value!
         tout = -1;
         // tainted ptr also implies tainted PC.
-        // TODO Notify when the PC is becoming tainted
+        taint_pc(vcpu_idx);
 
         _DEBUG("Propagate load[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIxXLEN "\n", vaddr, rd, tout);
     }
@@ -228,7 +227,7 @@ static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, targ
             //Non-ram location
             //FIXME: how shd we handle this?
             tout = 0;
-            _DEBUG("Propagate load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
+            _DEBUG("Propagate floating-point load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
         }
         else
         {
@@ -245,29 +244,15 @@ static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, targ
 
             switch (lt)
             {
-                case LOAD_LB:
-                {
-                    int8_t t = 0;
-                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
-                    tout = t;
-                    break;
-                }
-                case LOAD_LH:
-                {
-                    int16_t t = 0;
-                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
-                    tout = t;
-                    break;
-                }
-                case LOAD_LW:
+                case FP_LOAD_FLW:
                 {
                     int32_t t = 0;
                     memcpy(&t, shadow_mem + ram_addr, sizeof(t));
                     tout = t;
                     break;
                 }
-#ifdef TARGET_RISCV64
-                case LOAD_LD:
+#ifdef TARGET_RISCVD
+                case FP_LOAD_FLD:
                 {
                     int64_t t = 0;
                     memcpy(&t, shadow_mem + ram_addr, sizeof(t));
@@ -275,52 +260,28 @@ static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, targ
                     break;
                 }
 #endif
-                case LOAD_LBU:
-                {
-                    uint8_t t = 0;
-                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
-                    tout = t;
-                    break;
-                }
-                case LOAD_LHU:
-                {
-                    uint16_t t = 0;
-                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
-                    tout = t;
-                    break;
-                }
-#ifdef TARGET_RISCV64
-                case LOAD_LWU:
-                {
-                    uint32_t t = 0;
-                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
-                    tout = t;
-                    break;
-                }
-#endif
                 default:
                 {
-                    fprintf(stderr, "Error: unknown load type.\n");
+                    fprintf(stderr, "Error: unknown floating-point load type.\n");
                     exit(1);
                 }
             }
-            _DEBUG("Propagate load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=0x%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
+            _DEBUG("Propagate floating-point load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=0x%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
         }
     }
 
-    shadow_regs[rd] = tout;
+    shadow_fpregs[rd] = tout;
 }
 
 static void propagate_taint32__load_fp(unsigned int vcpu_idx, uint32_t instr)
 {
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
-    assert (f3 == 0b010);
 
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint16_t imm0_11 = INSTR32_I_IMM_0_11_GET(instr);
 
-    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t1 = shadow_regs[rs1]; // the address is taken from the integer registers.
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
 
     // The effective load address is obtained by adding register rs1 to
@@ -329,7 +290,7 @@ static void propagate_taint32__load_fp(unsigned int vcpu_idx, uint32_t instr)
     // do the sign extension, interpret as signed
     target_long imm = SIGN_EXTEND(imm0_11, 11);
 
-    static enum FP_LOAD_TYPE fp_to_load_type[] = {
+    static enum FP_LOAD_TYPE to_fp_load_type[] = {
         [INSTR32_F3_FLW] = FP_LOAD_FLW,
         [INSTR32_F3_FLD] = FP_LOAD_FLD,
         [INSTR32_F3_LW] = LOAD_LW,
@@ -338,7 +299,7 @@ static void propagate_taint32__load_fp(unsigned int vcpu_idx, uint32_t instr)
         [INSTR32_F3_LHU] = LOAD_LHU,
         [INSTR32_F3_LWU] = LOAD_LWU,
     };
-    enum FP_LOAD_TYPE lt = fp_to_load_type[f3];
+    enum FP_LOAD_TYPE lt = to_fp_load_type[f3];
 
     propagate_taint_load_fp_impl(vcpu_idx, rd, v1, imm, t1, lt);
 }
@@ -455,6 +416,93 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
     propagate_taint_store_impl(vcpu_idx, vals.v1, vals.v2, imm, t1, t2, st);
 }
 
+/***
+ * FP stores
+ ***/
+enum FP_STORE_TYPE {
+    FP_STORE_FSW, FP_STORE_FSD
+};
+
+static void propagate_taint_store_fp_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong v1, uint64_t offt, target_ulong t1, target_fplong t2, enum FP_STORE_TYPE lt)
+{
+    uint64_t vaddr = v1 + offt;
+
+    target_ulong tout = 0;
+    uint64_t paddr = 0;
+    uint64_t ram_addr = 0;
+
+    if (t1)
+    {
+        // tainted ptr implies fully tainted value!
+        tout = -1;
+        // tainted ptr also implies tainted PC.
+        taint_pc(vcpu_idx);
+
+        _DEBUG("Propagate floating-point store[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIxXLEN "\n", vaddr, rd, tout);
+    }
+    else
+    {
+        // else propagate the taint from the memory location.
+        // adress translation
+        // FIXME: does this work or shd we also add logic in mem callback?
+        qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
+        paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
+
+        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr)) {
+            tout = 0;
+            taint_pc(vcpu_idx);
+            _DEBUG("Propagate floating-point store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
+        }
+        else {
+            switch (lt) {
+                case FP_STORE_FSW:
+                    uint32_t tout = t2;
+                    memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
+                    break;
+#ifdef TARGET_RISCVD
+                case FP_STORE_FSD:
+                    uint64_t tout = t2;
+                    memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
+                    break;
+#endif
+                default:
+                    fprintf(stderr, "Error: unknown floating-point store type.\n");
+                    exit(1);
+            }
+            _DEBUG("Propagate floating-point store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=0x%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
+        }
+    }
+
+    shadow_fpregs[rd] = tout;
+}
+
+static void propagate_taint32__store_fp(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
+    uint16_t imm0_11 = INSTR32_I_IMM_0_11_GET(instr);
+
+    target_ulong t1 = shadow_regs[rs1]; // the address is taken from the integer registers.
+    target_ulong t2 = shadow_fpregs[rs2]; // the fp taint is taken from the FP registers.
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+
+    // The effective store address is obtained by adding register rs1 to
+    // the sign-extended 12-bit offset.
+
+    // do the sign extension, interpret as signed
+    target_long imm = SIGN_EXTEND(imm0_11, 11);
+
+    static enum FP_STORE_TYPE to_fp_store_type[] = {
+        [INSTR32_F3_FSW] = FP_STORE_FSW,
+        [INSTR32_F3_FSD] = FP_STORE_FSD,
+    };
+    enum FP_STORE_TYPE lt = to_fp_store_type[f3];
+
+    propagate_taint_store_fp_impl(vcpu_idx, rd, v1, imm, t1, t2, lt);
+}
 
 /***
  * Boolean and arithmetic operations
@@ -1814,6 +1862,80 @@ static void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t inst
     }
 }
 
+/**
+ * Floating-point madd, msub, nmadd, nmsub
+ */
+
+static void propagate_taint32__fp_madd_msub_nmadd_nmsub_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1, target_fplong t2, target_fplong t3)
+{
+    if (t1 | t2 | t3)
+        shadow_fpregs[rd] = -1ULL;
+    else;
+        shadow_fpregs[rd] = 0;
+}
+
+static void propagate_taint32__fp_madd_msub_nmadd_nmsub(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t rm = INSTR32_GET_FUNCT3(instr);
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
+    uint8_t rs3 = INSTR32_RS3_GET(instr);
+
+    target_fplong t1 = shadow_fpregs[rs1];
+    target_fplong t2 = shadow_fpregs[rs2];
+    target_fplong t3 = shadow_fpregs[rs3];
+
+    propagate_taint32__fp_madd_msub_nmadd_nmsub_impl(vcpu_idx, rd, t1, t2, t3);
+}
+
+/**
+ * Floating-point ops
+ */
+
+static void propagate_taint32__fp_add_mul_sub_div_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1, target_fplong t2)
+{
+    if (t1 | t2 | t3)
+        shadow_fpregs[rd] = -1ULL;
+    else;
+        shadow_fpregs[rd] = 0;
+}
+
+
+static void propagate_taint32__fp_op(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr); // TODO Only for some of the instrs
+
+    // TODO Continuer ici
+
+    target_ulong t1 = shadow_regs[rs1]; // the address is taken from the integer registers.
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+
+    // The effective load address is obtained by adding register rs1 to
+    // the sign-extended 12-bit offset.
+
+    // do the sign extension, interpret as signed
+    target_long imm = SIGN_EXTEND(imm0_11, 11);
+
+    static enum FP_LOAD_TYPE to_fp_load_type[] = {
+        [INSTR32_F3_FLW] = FP_LOAD_FLW,
+        [INSTR32_F3_FLD] = FP_LOAD_FLD,
+        [INSTR32_F3_LW] = LOAD_LW,
+        [INSTR32_F3_LD] = LOAD_LD,
+        [INSTR32_F3_LBU] = LOAD_LBU,
+        [INSTR32_F3_LHU] = LOAD_LHU,
+        [INSTR32_F3_LWU] = LOAD_LWU,
+    };
+    enum FP_LOAD_TYPE lt = to_fp_load_type[f3];
+
+    propagate_taint_load_fp_impl(vcpu_idx, rd, v1, imm, t1, lt);
+}
+
+
 static void propagate_taint_JAL(unsigned int vcpu_idx, uint32_t instr)
 {
     // unconditionnal jump with an immediate.
@@ -1895,11 +2017,15 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         propagate_taint32__reg_reg_op32(vcpu_idx, instr);
         break;
 
-    case INSTR32_OPCODE_HI_MADD:
-    case INSTR32_OPCODE_HI_MSUB:
-    case INSTR32_OPCODE_HI_NMSUB:
-    case INSTR32_OPCODE_HI_NMADD:
-    case INSTR32_OPCODE_HI_OP_FP:  // FIXME: no support for floats (F extension)
+    case INSTR32_OPCODE_HI_FP_MADD:
+    case INSTR32_OPCODE_HI_FP_MSUB:
+    case INSTR32_OPCODE_HI_FP_NMSUB:
+    case INSTR32_OPCODE_HI_FP_NMADD:
+        propagate_taint32__fp_madd_msub_nmadd_nmsub(vcpu_idx, instr);
+        break;
+
+    case INSTR32_OPCODE_HI_FP_OP:  // FIXME: no support for floats (F extension)
+        propagate_taint32__fp_op(vcpu_idx, instr);
         break;
 
     case INSTR32_OPCODE_HI_BRANCH:

@@ -54,6 +54,7 @@ static inline target_ulong SIGN_EXTEND(target_ulong N, int k)
 #define INSTR32_RD_GET(instr)  ((instr >> 7)  & MASK(5))
 #define INSTR32_RS1_GET(instr) ((instr >> 15) & MASK(5))
 #define INSTR32_RS2_GET(instr) ((instr >> 20) & MASK(5))
+#define INSTR32_RS3_GET(instr) ((instr >> 27) & MASK(5))
 
 #define INSTR32_I_IMM_0_11_GET(instr) ((instr >>  20) & MASK(12))
 #define INSTR32_S_IMM_0_4_GET(instr)  ((instr >>  7)  & MASK(5))
@@ -113,11 +114,11 @@ enum {
     INSTR32_OPCODE_HI_OP       = 0b01100,
     INSTR32_OPCODE_HI_LUI      = 0b01101,
     INSTR32_OPCODE_HI_OP_32    = 0b01110,
-    INSTR32_OPCODE_HI_MADD     = 0b10000,
-    INSTR32_OPCODE_HI_MSUB     = 0b10001,
-    INSTR32_OPCODE_HI_NMSUB    = 0b10010,
-    INSTR32_OPCODE_HI_NMADD    = 0b10011,
-    INSTR32_OPCODE_HI_OP_FP    = 0b10100,
+    INSTR32_OPCODE_HI_FP_MADD  = 0b10000,
+    INSTR32_OPCODE_HI_FP_MSUB  = 0b10001,
+    INSTR32_OPCODE_HI_FP_NMSUB = 0b10010,
+    INSTR32_OPCODE_HI_FP_NMADD = 0b10011,
+    INSTR32_OPCODE_HI_FP_OP    = 0b10100,
     //reserved                 = 0b10101,
     //custom                   = 0b10110,
     INSTR32_OPCODE_HI_BRANCH   = 0b11000,
