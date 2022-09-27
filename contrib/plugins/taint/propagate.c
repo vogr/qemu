@@ -2060,15 +2060,15 @@ static void propagate_taint32__fp_op(unsigned int vcpu_idx, uint32_t instr)
         // case FOP_FUNC7_FLT_D:
         // case FOP_FUNC7_FLE_D:
         {
-            target_ulong t1 = shadow_fpregs[rs1]; // The source register is an integer register in this case.
-            target_ulong t2 = shadow_fpregs[rs2]; // The source register is an integer register in this case.
+            target_ulong t1 = shadow_fpregs[rs1];
+            target_ulong t2 = shadow_fpregs[rs2];
             propagate_taint32__fp_cmp_impl(vcpu_idx, rd, t1, t2);
             break;
         }
         case FOP_FUNC7_FCVT_S_D:
         case FOP_FUNC7_FCVT_D_S:
         {
-            target_ulong t1 = shadow_fpregs[rs1]; // The source register is an integer register in this case.
+            target_ulong t1 = shadow_fpregs[rs1];
             propagate_taint32__fp_mv_impl(vcpu_idx, rd, t1);
             break;
         }
