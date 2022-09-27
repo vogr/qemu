@@ -20,7 +20,6 @@
 
 // NOTE: Floating-point arithmetic tainting is conserative, for example FMADD (r1 x r2) + r3 will be tainted completely if any of the input registers is tainted.
 
-
 /****************************
  * Taint propagation logic, per instruction
  ***************************/
@@ -293,11 +292,6 @@ static void propagate_taint32__load_fp(unsigned int vcpu_idx, uint32_t instr)
     static enum FP_LOAD_TYPE to_fp_load_type[] = {
         [INSTR32_F3_FLW] = FP_LOAD_FLW,
         [INSTR32_F3_FLD] = FP_LOAD_FLD,
-        [INSTR32_F3_LW] = LOAD_LW,
-        [INSTR32_F3_LD] = LOAD_LD,
-        [INSTR32_F3_LBU] = LOAD_LBU,
-        [INSTR32_F3_LHU] = LOAD_LHU,
-        [INSTR32_F3_LWU] = LOAD_LWU,
     };
     enum FP_LOAD_TYPE lt = to_fp_load_type[f3];
 
@@ -1870,7 +1864,7 @@ static void propagate_taint32__fp_madd_msub_nmadd_nmsub_impl(unsigned int vcpu_i
 {
     if (t1 | t2 | t3)
         shadow_fpregs[rd] = -1ULL;
-    else;
+    else
         shadow_fpregs[rd] = 0;
 }
 
@@ -1893,46 +1887,178 @@ static void propagate_taint32__fp_madd_msub_nmadd_nmsub(unsigned int vcpu_idx, u
  * Floating-point ops
  */
 
-static void propagate_taint32__fp_add_mul_sub_div_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1, target_fplong t2)
-{
-    if (t1 | t2 | t3)
+enum FOP_TYPE {
+    FOP_FUNC7_FADD_S   = 0b0000000,
+    FOP_FUNC7_FSUB_S   = 0b0000100,
+    FOP_FUNC7_FMUL_S   = 0b0001000,
+    FOP_FUNC7_FDIV_S   = 0b0001100,
+    FOP_FUNC7_FSQRT_S  = 0b0101100,
+    FOP_FUNC7_FSGNJ_S  = 0b0010000,
+// FOP_FUNC7_FSGNJN_S  0b0010000
+// FOP_FUNC7_FSGNJX_S  0b0010000
+    FOP_FUNC7_FMIN_S   = 0b0010100,
+// FOP_FUNC7_FMAX_S    0b0010100
+    FOP_FUNC7_FCVT_W_S = 0b1100000,
+// FOP_FUNC7_FCVT_WU_S 0b1100000
+    FOP_FUNC7_FMV_X_W  = 0b1110000,
+    FOP_FUNC7_FEQ_S    = 0b1010000,
+// FOP_FUNC7_FLT_S     0b1010000
+// FOP_FUNC7_FLE_S     0b1010000
+// FOP_FUNC7_FCLASS_S = 0b1110000,
+    FOP_FUNC7_FCVT_S_W = 0b1101000,
+// FOP_FUNC7_FCVT_S_WU 0b1101000
+    FOP_FUNC7_FMV_W_X  = 0b1111000,
+
+    FOP_FUNC7_FADD_D   = 0b0000001,
+    FOP_FUNC7_FSUB_D   = 0b0000101,
+    FOP_FUNC7_FMUL_D   = 0b0001001,
+    FOP_FUNC7_FDIV_D   = 0b0001101,
+    FOP_FUNC7_FSQRT_D  = 0b0101101,
+    FOP_FUNC7_FSGNJ_D  = 0b0010001,
+// FOP_FUNC7_FSGNJN_D  0b0010001
+// FOP_FUNC7_FSGNJX_D  0b0010001
+    FOP_FUNC7_FMIN_D   = 0b0010101,
+// FOP_FUNC7_FMAX_D    0b0010101
+    FOP_FUNC7_FCVT_S_D = 0b0100000,
+    FOP_FUNC7_FCVT_D_S = 0b0100001,
+    FOP_FUNC7_FEQ_D    = 0b1010001,
+// FOP_FUNC7_FLT_D     0b1010001
+// FOP_FUNC7_FLE_D     0b1010001
+    FOP_FUNC7_FCLASS_D = 0b1110001,
+    FOP_FUNC7_FCVT_W_D = 0b1100001,
+// FOP_FUNC7_FCVT_WU_D 0b1100001
+    FOP_FUNC7_FCVT_D_W = 0b1101001,
+// FOP_FUNC7_FCVT_D_WU 0b1101001
+};
+
+static void propagate_taint32__fp_regop_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1, target_fplong t2) {
+    if (t1 | t2)
         shadow_fpregs[rd] = -1ULL;
-    else;
+    else
         shadow_fpregs[rd] = 0;
 }
-
+static void propagate_taint32__fp_sqrt_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1) {
+    if (t1)
+        shadow_fpregs[rd] = -1ULL;
+    else
+        shadow_fpregs[rd] = 0;
+}
+static void propagate_taint32__fp_to_int_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1) {
+    // The sign extension ensures that the complete destination register is becoming tainted.
+    if (t1)
+        shadow_regs[rd] = -1ULL;
+    else
+        shadow_regs[rd] = 0;
+}
+static void propagate_taint32__fp_from_int_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong t1) {
+    if (t1)
+        shadow_fpregs[rd] = (uint32_t)(-1);
+    else
+        shadow_fpregs[rd] = 0;
+}
+static void propagate_taint32__fp_cmp_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1, target_fplong t2) {
+    // Comparisons that write 0 or 1 to an integer register.
+    if (t1 | t2)
+        shadow_regs[rd] = 1;
+    else
+        shadow_regs[rd] = 0;
+}
+static void propagate_taint32__fp_mv_impl(unsigned int vcpu_idx, uint8_t rd, target_fplong t1) {
+    if (t1)
+        shadow_fpregs[rd] = 1;
+    else
+        shadow_fpregs[rd] = 0;
+}
 
 static void propagate_taint32__fp_op(unsigned int vcpu_idx, uint32_t instr)
 {
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
-
+    uint8_t f7 = INSTR32_GET_FUNCT7(instr);
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
-    uint8_t rs2 = INSTR32_RS2_GET(instr); // TODO Only for some of the instrs
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
 
-    // TODO Continuer ici
-
-    target_ulong t1 = shadow_regs[rs1]; // the address is taken from the integer registers.
-    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-
-    // The effective load address is obtained by adding register rs1 to
-    // the sign-extended 12-bit offset.
-
-    // do the sign extension, interpret as signed
-    target_long imm = SIGN_EXTEND(imm0_11, 11);
-
-    static enum FP_LOAD_TYPE to_fp_load_type[] = {
-        [INSTR32_F3_FLW] = FP_LOAD_FLW,
-        [INSTR32_F3_FLD] = FP_LOAD_FLD,
-        [INSTR32_F3_LW] = LOAD_LW,
-        [INSTR32_F3_LD] = LOAD_LD,
-        [INSTR32_F3_LBU] = LOAD_LBU,
-        [INSTR32_F3_LHU] = LOAD_LHU,
-        [INSTR32_F3_LWU] = LOAD_LWU,
-    };
-    enum FP_LOAD_TYPE lt = to_fp_load_type[f3];
-
-    propagate_taint_load_fp_impl(vcpu_idx, rd, v1, imm, t1, lt);
+    switch (f7) {
+        case FOP_FUNC7_FADD_S:
+        case FOP_FUNC7_FSUB_S:
+        case FOP_FUNC7_FMUL_S:
+        case FOP_FUNC7_FDIV_S:
+        case FOP_FUNC7_FSGNJ_S:
+        // case FOP_FUNC7_FSGNJN_S:
+        // case FOP_FUNC7_FSGNJX_S:
+        case FOP_FUNC7_FMIN_S:
+        // case FOP_FUNC7_FMAX_S:
+        case FOP_FUNC7_FADD_D:
+        case FOP_FUNC7_FSUB_D:
+        case FOP_FUNC7_FMUL_D:
+        case FOP_FUNC7_FDIV_D:
+        case FOP_FUNC7_FSGNJ_D:
+        // case FOP_FUNC7_FSGNJN_D:
+        // case FOP_FUNC7_FSGNJX_D:
+        case FOP_FUNC7_FMIN_D:
+        // case FOP_FUNC7_FMAX_D:
+            target_ulong t1 = shadow_fpregs[rs1];
+            target_ulong t2 = shadow_fpregs[rs2];
+            propagate_taint32__fp_regop_impl(vcpu_idx, rd, t1, t2);
+            break;
+        case FOP_FUNC7_FSQRT_S:
+        case FOP_FUNC7_FSQRT_D:
+            target_ulong t1 = shadow_fpregs[rs1];
+            propagate_taint32__fp_sqrt_impl(vcpu_idx, rd, t1);
+            break;
+        case FOP_FUNC7_FCVT_W_S:
+        // case FOP_FUNC7_FCVT_WU_S:
+        case FOP_FUNC7_FMV_W_X:
+        case FOP_FUNC7_FCVT_W_D:
+        // case FOP_FUNC7_FCVT_WU_D:
+            target_ulong t1 = shadow_fpregs[rs1];
+            propagate_taint32__fp_to_int_impl(vcpu_idx, rd, t1);
+            break;
+        case FOP_FUNC7_FCVT_S_W:
+        // case FOP_FUNC7_FCVT_S_WU:
+        case FOP_FUNC7_FCVT_D_W:
+        // case FOP_FUNC7_FCVT_D_WU:
+        case FOP_FUNC7_FCLASS_D:
+            target_ulong t1 = shadow_regs[rs1];
+            propagate_taint32__fp_from_int_impl(vcpu_idx, rd, t1);
+            break;
+        case FOP_FUNC7_FMV_X_W__OR__FCLASS_S:
+            // Discriminate between the two instructions that have the same opcode but not the same taint propagation policy.
+            switch (f3) {
+                case 0b000:
+                    // FMV_X_W
+                    target_ulong t1 = shadow_regs[rs1];
+                    propagate_taint32__fp_from_int_impl(vcpu_idx, rd, t1);
+                    break;
+                case 0b001:
+                    // FCLASS_S
+                    target_ulong t1 = shadow_fpregs[rs1];
+                    propagate_taint32__fp_to_int_impl(vcpu_idx, rd, t1);
+                    break;
+                default:
+                    fprintf(stderr, "Unknown funct3 for FOP_FUNC7_FMV_X_W__OR__FCLASS_S opcode: 0x%" PRIx32 "\n", instr);
+                    break;
+            }
+            break;
+        case FOP_FUNC7_FEQ_S:
+        // case FOP_FUNC7_FLT_S:
+        // case FOP_FUNC7_FLE_S:
+        case FOP_FUNC7_FEQ_D:
+        // case FOP_FUNC7_FLT_D:
+        // case FOP_FUNC7_FLE_D:
+            target_ulong t1 = shadow_fpregs[rs1]; // The source register is an integer register in this case.
+            target_ulong t2 = shadow_fpregs[rs2]; // The source register is an integer register in this case.
+            propagate_taint32__fp_cmp_impl(vcpu_idx, rd, t1, t2);
+            break;
+        case FOP_FUNC7_FCVT_S_D:
+        case FOP_FUNC7_FCVT_D_S:
+            target_ulong t1 = shadow_fpregs[rs1]; // The source register is an integer register in this case.
+            propagate_taint32__fp_mv_impl(vcpu_idx, rd, t1);
+            break;
+        default:
+            fprintf(stderr, "Unknown opcode for instr: 0x%" PRIx32 "\n", instr);
+            break;
+    }
 }
 
 
