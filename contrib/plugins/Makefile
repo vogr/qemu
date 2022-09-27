@@ -49,11 +49,14 @@ TAINT_OBJS := taint/hypercall.o taint/hypernotify.o taint/logging.o taint/monito
 RISCV_XLEN?=64
 CFLAGS_TAINT := -DRISCV_XLEN=$(RISCV_XLEN)
 
+TARGET_RISCVD?=1
+CFLAGS_TAINT += -DTARGET_RISCVD=$(TARGET_RISCVD)
+
 LDLIBS_TAINT :=
 LDLIBS_TAINT += -lmsgpackc
 
 taint/%.o: taint/%.c
-	$(CC) $(CFLAGS) $(CFLAGS_TAINT) -c -o $@ $<
+	$(CC) $(CFLAGS) $(CFLAGS_TAINT) $(CFLAGS_RISCVD) -c -o $@ $<
 
 $(TAINT_BUILD_DIR):
 	mkdir $(TAINT_BUILD_DIR)

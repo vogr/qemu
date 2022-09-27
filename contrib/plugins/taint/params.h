@@ -18,4 +18,4 @@ extern target_fplong shadow_fpregs[32];
 // To make the PC tainted.
 extern void taint_pc(int vcpu_idx);
 // To read whether the PC is tainted.
-extern target_ulong get_pc_taint();
+extern target_ulong get_pc_taint(void);

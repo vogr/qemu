@@ -449,15 +449,17 @@ static void propagate_taint_store_fp_impl(unsigned int vcpu_idx, uint8_t rd, tar
         }
         else {
             switch (lt) {
-                case FP_STORE_FSW:
+                case FP_STORE_FSW: {
                     uint32_t tout = t2;
                     memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
                     break;
+                }
 #ifdef TARGET_RISCVD
-                case FP_STORE_FSD:
+                case FP_STORE_FSD: {
                     uint64_t tout = t2;
                     memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
                     break;
+                }
 #endif
                 default:
                     fprintf(stderr, "Error: unknown floating-point store type.\n");
@@ -1870,7 +1872,6 @@ static void propagate_taint32__fp_madd_msub_nmadd_nmsub_impl(unsigned int vcpu_i
 
 static void propagate_taint32__fp_madd_msub_nmadd_nmsub(unsigned int vcpu_idx, uint32_t instr)
 {
-    uint8_t rm = INSTR32_GET_FUNCT3(instr);
     uint8_t rd = INSTR32_RD_GET(instr);
     uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint8_t rs2 = INSTR32_RS2_GET(instr);
@@ -1888,46 +1889,46 @@ static void propagate_taint32__fp_madd_msub_nmadd_nmsub(unsigned int vcpu_idx, u
  */
 
 enum FOP_TYPE {
-    FOP_FUNC7_FADD_S   = 0b0000000,
-    FOP_FUNC7_FSUB_S   = 0b0000100,
-    FOP_FUNC7_FMUL_S   = 0b0001000,
-    FOP_FUNC7_FDIV_S   = 0b0001100,
-    FOP_FUNC7_FSQRT_S  = 0b0101100,
-    FOP_FUNC7_FSGNJ_S  = 0b0010000,
+    FOP_FUNC7_FADD_S                 = 0b0000000,
+    FOP_FUNC7_FSUB_S                 = 0b0000100,
+    FOP_FUNC7_FMUL_S                 = 0b0001000,
+    FOP_FUNC7_FDIV_S                 = 0b0001100,
+    FOP_FUNC7_FSQRT_S                = 0b0101100,
+    FOP_FUNC7_FSGNJ_S                = 0b0010000,
 // FOP_FUNC7_FSGNJN_S  0b0010000
 // FOP_FUNC7_FSGNJX_S  0b0010000
-    FOP_FUNC7_FMIN_S   = 0b0010100,
+    FOP_FUNC7_FMIN_S                 = 0b0010100,
 // FOP_FUNC7_FMAX_S    0b0010100
-    FOP_FUNC7_FCVT_W_S = 0b1100000,
+    FOP_FUNC7_FCVT_W_S               = 0b1100000,
 // FOP_FUNC7_FCVT_WU_S 0b1100000
-    FOP_FUNC7_FMV_X_W  = 0b1110000,
-    FOP_FUNC7_FEQ_S    = 0b1010000,
+    FOP_FUNC7_FMV_X_W__OR__FCLASS_S  = 0b1110000,
+    FOP_FUNC7_FEQ_S                  = 0b1010000,
 // FOP_FUNC7_FLT_S     0b1010000
 // FOP_FUNC7_FLE_S     0b1010000
-// FOP_FUNC7_FCLASS_S = 0b1110000,
-    FOP_FUNC7_FCVT_S_W = 0b1101000,
+// FOP_FUNC7_FCLASS_S                = 0b1110000,
+    FOP_FUNC7_FCVT_S_W               = 0b1101000,
 // FOP_FUNC7_FCVT_S_WU 0b1101000
-    FOP_FUNC7_FMV_W_X  = 0b1111000,
+    FOP_FUNC7_FMV_W_X                = 0b1111000,
 
-    FOP_FUNC7_FADD_D   = 0b0000001,
-    FOP_FUNC7_FSUB_D   = 0b0000101,
-    FOP_FUNC7_FMUL_D   = 0b0001001,
-    FOP_FUNC7_FDIV_D   = 0b0001101,
-    FOP_FUNC7_FSQRT_D  = 0b0101101,
-    FOP_FUNC7_FSGNJ_D  = 0b0010001,
+    FOP_FUNC7_FADD_D                 = 0b0000001,
+    FOP_FUNC7_FSUB_D                 = 0b0000101,
+    FOP_FUNC7_FMUL_D                 = 0b0001001,
+    FOP_FUNC7_FDIV_D                 = 0b0001101,
+    FOP_FUNC7_FSQRT_D                = 0b0101101,
+    FOP_FUNC7_FSGNJ_D                = 0b0010001,
 // FOP_FUNC7_FSGNJN_D  0b0010001
 // FOP_FUNC7_FSGNJX_D  0b0010001
-    FOP_FUNC7_FMIN_D   = 0b0010101,
+    FOP_FUNC7_FMIN_D                 = 0b0010101,
 // FOP_FUNC7_FMAX_D    0b0010101
-    FOP_FUNC7_FCVT_S_D = 0b0100000,
-    FOP_FUNC7_FCVT_D_S = 0b0100001,
-    FOP_FUNC7_FEQ_D    = 0b1010001,
+    FOP_FUNC7_FCVT_S_D               = 0b0100000,
+    FOP_FUNC7_FCVT_D_S               = 0b0100001,
+    FOP_FUNC7_FEQ_D                  = 0b1010001,
 // FOP_FUNC7_FLT_D     0b1010001
 // FOP_FUNC7_FLE_D     0b1010001
-    FOP_FUNC7_FCLASS_D = 0b1110001,
-    FOP_FUNC7_FCVT_W_D = 0b1100001,
+    FOP_FUNC7_FCLASS_D               = 0b1110001,
+    FOP_FUNC7_FCVT_W_D               = 0b1100001,
 // FOP_FUNC7_FCVT_WU_D 0b1100001
-    FOP_FUNC7_FCVT_D_W = 0b1101001,
+    FOP_FUNC7_FCVT_D_W               = 0b1101001,
 // FOP_FUNC7_FCVT_D_WU 0b1101001
 };
 
@@ -1997,44 +1998,56 @@ static void propagate_taint32__fp_op(unsigned int vcpu_idx, uint32_t instr)
         // case FOP_FUNC7_FSGNJX_D:
         case FOP_FUNC7_FMIN_D:
         // case FOP_FUNC7_FMAX_D:
-            target_ulong t1 = shadow_fpregs[rs1];
-            target_ulong t2 = shadow_fpregs[rs2];
+        {
+            target_fplong t1 = shadow_fpregs[rs1];
+            target_fplong t2 = shadow_fpregs[rs2];
             propagate_taint32__fp_regop_impl(vcpu_idx, rd, t1, t2);
             break;
+        }
         case FOP_FUNC7_FSQRT_S:
         case FOP_FUNC7_FSQRT_D:
-            target_ulong t1 = shadow_fpregs[rs1];
+        {
+            target_fplong t1 = shadow_fpregs[rs1];
             propagate_taint32__fp_sqrt_impl(vcpu_idx, rd, t1);
             break;
+        }
         case FOP_FUNC7_FCVT_W_S:
         // case FOP_FUNC7_FCVT_WU_S:
         case FOP_FUNC7_FMV_W_X:
         case FOP_FUNC7_FCVT_W_D:
+        case FOP_FUNC7_FCLASS_D:
         // case FOP_FUNC7_FCVT_WU_D:
-            target_ulong t1 = shadow_fpregs[rs1];
+        {
+            target_fplong t1 = shadow_fpregs[rs1];
             propagate_taint32__fp_to_int_impl(vcpu_idx, rd, t1);
             break;
+        }
         case FOP_FUNC7_FCVT_S_W:
         // case FOP_FUNC7_FCVT_S_WU:
         case FOP_FUNC7_FCVT_D_W:
         // case FOP_FUNC7_FCVT_D_WU:
-        case FOP_FUNC7_FCLASS_D:
+        {
             target_ulong t1 = shadow_regs[rs1];
             propagate_taint32__fp_from_int_impl(vcpu_idx, rd, t1);
             break;
+        }
         case FOP_FUNC7_FMV_X_W__OR__FCLASS_S:
             // Discriminate between the two instructions that have the same opcode but not the same taint propagation policy.
             switch (f3) {
                 case 0b000:
+                {
                     // FMV_X_W
                     target_ulong t1 = shadow_regs[rs1];
                     propagate_taint32__fp_from_int_impl(vcpu_idx, rd, t1);
                     break;
+                }
                 case 0b001:
+                {
                     // FCLASS_S
-                    target_ulong t1 = shadow_fpregs[rs1];
+                    target_fplong t1 = shadow_fpregs[rs1];
                     propagate_taint32__fp_to_int_impl(vcpu_idx, rd, t1);
                     break;
+                }
                 default:
                     fprintf(stderr, "Unknown funct3 for FOP_FUNC7_FMV_X_W__OR__FCLASS_S opcode: 0x%" PRIx32 "\n", instr);
                     break;
@@ -2046,21 +2059,24 @@ static void propagate_taint32__fp_op(unsigned int vcpu_idx, uint32_t instr)
         case FOP_FUNC7_FEQ_D:
         // case FOP_FUNC7_FLT_D:
         // case FOP_FUNC7_FLE_D:
+        {
             target_ulong t1 = shadow_fpregs[rs1]; // The source register is an integer register in this case.
             target_ulong t2 = shadow_fpregs[rs2]; // The source register is an integer register in this case.
             propagate_taint32__fp_cmp_impl(vcpu_idx, rd, t1, t2);
             break;
+        }
         case FOP_FUNC7_FCVT_S_D:
         case FOP_FUNC7_FCVT_D_S:
+        {
             target_ulong t1 = shadow_fpregs[rs1]; // The source register is an integer register in this case.
             propagate_taint32__fp_mv_impl(vcpu_idx, rd, t1);
             break;
+        }
         default:
             fprintf(stderr, "Unknown opcode for instr: 0x%" PRIx32 "\n", instr);
             break;
     }
 }
-
 
 static void propagate_taint_JAL(unsigned int vcpu_idx, uint32_t instr)
 {
@@ -2124,7 +2140,8 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         propagate_taint32__store(vcpu_idx, instr);
         break;
 
-    case INSTR32_OPCODE_HI_STORE_FP: // FIXME: no support for floats (F extension)
+    case INSTR32_OPCODE_HI_STORE_FP:
+        propagate_taint32__store_fp(vcpu_idx, instr);
         break;
 
     case INSTR32_OPCODE_HI_AMO: // FIXME: no support for atomic operations (A extension)
