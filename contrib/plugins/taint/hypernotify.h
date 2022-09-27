@@ -10,6 +10,8 @@
  */
 #include <qemu-plugin.h>
 
+#define HN_ID_GP 0 // General purpose / debug notif
+#define HN_ID_PC_BECOMES_TAINTED 1 // PC becomes tainted
 
 struct HypernotifyData
 {

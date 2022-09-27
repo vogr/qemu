@@ -142,12 +142,24 @@ enum {
     INSTR32_F3_LWU = 0b110,
 };
 
+// Floating point loads
+enum {
+    INSTR32_F3_FLW = 0b010,
+    INSTR32_F3_FLD = 0b011,
+};
+
 // Stores
 enum {
     INSTR32_F3_SB  = 0b000,
     INSTR32_F3_SH  = 0b001,
     INSTR32_F3_SW  = 0b010,
     INSTR32_F3_SD  = 0b011,
+};
+
+// Floating point stores
+enum {
+    INSTR32_F3_FSW = 0b010,
+    INSTR32_F3_FSD = 0b011,
 };
 
 // Register-immediate ops

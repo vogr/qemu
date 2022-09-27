@@ -183,9 +183,165 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
     };
     enum LOAD_TYPE lt = to_load_type[f3];
 
+    // FIXME Propoagate taint to the PC if applicable
     propagate_taint_load_impl(vcpu_idx, rd, v1, imm, t1, lt);
 }
 
+/***
+ * FP loads
+ ***/
+
+enum FP_LOAD_TYPE {
+    FP_LOAD_FLW, FP_LOAD_FLD
+};
+
+static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong v1, uint64_t offt, target_ulong t1, enum FP_LOAD_TYPE lt)
+{
+    uint64_t vaddr = v1 + offt;
+
+    target_ulong tout = 0;
+    uint64_t paddr = 0;
+    uint64_t ram_addr = 0;
+
+    if (t1)
+    {
+        // tainted ptr implies fully tainted value!
+        tout = -1;
+        // tainted ptr also implies tainted PC.
+        // TODO Notify when the PC is becoming tainted
+
+        _DEBUG("Propagate load[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIxXLEN "\n", vaddr, rd, tout);
+    }
+    else
+    {
+        // else propagate the taint from the memory location.
+
+
+
+        // adress translation
+        // FIXME: does this work or shd we also add logic in mem callback?
+        qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
+        paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
+
+        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
+        {
+            //Non-ram location
+            //FIXME: how shd we handle this?
+            tout = 0;
+            _DEBUG("Propagate load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
+        }
+        else
+        {
+
+
+
+            // NOTE: the loaded value is sign (/value for the U variants) extended
+            // to XLEN bits before being stored in the register.
+            // This means we will update all the bits in the shadow register.
+
+
+            // Note that casting from short int to large uint does the sign expansion,
+            // casting from short uint to large uint does not.
+
+            switch (lt)
+            {
+                case LOAD_LB:
+                {
+                    int8_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+                case LOAD_LH:
+                {
+                    int16_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+                case LOAD_LW:
+                {
+                    int32_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+#ifdef TARGET_RISCV64
+                case LOAD_LD:
+                {
+                    int64_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+#endif
+                case LOAD_LBU:
+                {
+                    uint8_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+                case LOAD_LHU:
+                {
+                    uint16_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+#ifdef TARGET_RISCV64
+                case LOAD_LWU:
+                {
+                    uint32_t t = 0;
+                    memcpy(&t, shadow_mem + ram_addr, sizeof(t));
+                    tout = t;
+                    break;
+                }
+#endif
+                default:
+                {
+                    fprintf(stderr, "Error: unknown load type.\n");
+                    exit(1);
+                }
+            }
+            _DEBUG("Propagate load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=0x%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
+        }
+    }
+
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint32__load_fp(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+    assert (f3 == 0b010);
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint16_t imm0_11 = INSTR32_I_IMM_0_11_GET(instr);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+
+    // The effective load address is obtained by adding register rs1 to
+    // the sign-extended 12-bit offset.
+
+    // do the sign extension, interpret as signed
+    target_long imm = SIGN_EXTEND(imm0_11, 11);
+
+    static enum FP_LOAD_TYPE fp_to_load_type[] = {
+        [INSTR32_F3_FLW] = FP_LOAD_FLW,
+        [INSTR32_F3_FLD] = FP_LOAD_FLD,
+        [INSTR32_F3_LW] = LOAD_LW,
+        [INSTR32_F3_LD] = LOAD_LD,
+        [INSTR32_F3_LBU] = LOAD_LBU,
+        [INSTR32_F3_LHU] = LOAD_LHU,
+        [INSTR32_F3_LWU] = LOAD_LWU,
+    };
+    enum FP_LOAD_TYPE lt = fp_to_load_type[f3];
+
+    propagate_taint_load_fp_impl(vcpu_idx, rd, v1, imm, t1, lt);
+}
 
 /***
  * Stores
@@ -1674,9 +1830,7 @@ static void propagate_taint_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
     target_ulong rs_shadowval = shadow_regs[rs1];
 
     if (rs_shadowval) {
-        if (~shadow_pc)
-            _DEBUG("PC became tainted by JAL at pc=0x%" PRIxXLEN "\n", get_one_reg_value(vcpu_idx, 32));
-        shadow_pc = -1ULL;
+        taint_pc(vcpu_idx);
     }
 }
 
@@ -1699,7 +1853,10 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         propagate_taint32__load(vcpu_idx, instr);
         break;
 
-    case INSTR32_OPCODE_HI_LOAD_FP: // FIXME: no support for floats yet
+    case INSTR32_OPCODE_HI_LOAD_FP:
+        propagate_taint32__load_fp(vcpu_idx, instr);
+        break;
+
     case INSTR32_OPCODE_HI_MISC_MEM: // FIXME: what is misc mem?
         break;
 

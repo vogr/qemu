@@ -204,7 +204,7 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
     return 0;
 }
 
-static int doIsPCTainted(msgpack_packer * pk)
+static int doGetPCTaint(msgpack_packer * pk)
 {
     fprintf(stderr, "is_pc_tainted()\n");
 
@@ -216,6 +216,7 @@ static int doIsPCTainted(msgpack_packer * pk)
 
     // taint
     msgpack_pack_bin(pk, sizeof(target_ulong));
+    target_ulong shadow_pc = get_pc_taint();
     msgpack_pack_bin_body(pk, &shadow_pc, sizeof(target_ulong));
 
     return 0;
@@ -388,9 +389,9 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
         else
             ret = doGetTaintReg(pk, p);
     }
-    else if (CMD_CMP(cmd, "is-pc-tainted"))
+    else if (CMD_CMP(cmd, "get-pc-taint"))
     {
-        ret = doIsPCTainted(pk);
+        ret = doGetPCTaint(pk);
     }
     else if (CMD_CMP(cmd, "get-regs"))
     {
