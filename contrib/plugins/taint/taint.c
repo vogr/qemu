@@ -161,10 +161,17 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 
         }
         else if ((ins_data->instr & 0xf00fffff) == 0x40000013 && ins_data->instr >> 20UL >= 0x480 && ins_data->instr >> 20UL <= 0x49F) {
-            // the instruction is "addi zero, zero, N", for 0x480 <= N <= 0x49F, this is a hypercall for tainting a single word of memory at address pointed by register x{N-0x480}
+            // the instruction is "addi zero, zero, N", for 0x480 <= N <= 0x49F, this is a hypercall for tainting a doubleword of memory at address pointed by register x{N-0x480}
             uint32_t *regid = malloc(sizeof(int));
             *regid = (ins_data->instr >> 20UL) - 0x480;
-            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_hypercall_taintsingleword_cb,
+            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_hypercall_taintdoubleword_cb,
+                QEMU_PLUGIN_CB_R_REGS, (void*)regid);
+        }
+        else if ((ins_data->instr & 0xf00fffff) == 0x40000013 && ins_data->instr >> 20UL >= 0x4A0 && ins_data->instr >> 20UL <= 0x4BF) {
+            // the instruction is "addi zero, zero, N", for 0x4A0 <= N <= 0x4BF, this is a hypercall for tainting a the register x{N-0x4A0}
+            uint32_t *regid = malloc(sizeof(int));
+            *regid = (ins_data->instr >> 20UL) - 0x4A0;
+            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_hypercall_taintfullreg_cb,
                 QEMU_PLUGIN_CB_R_REGS, (void*)regid);
         }
         else if ((ins_data->instr & 0xf00fffff) == 0x10000013)

@@ -206,6 +206,23 @@ static int doGetTaintReg(msgpack_packer * pk, struct get_taint_reg_params p)
     return 0;
 }
 
+static int doIsPCTainted(msgpack_packer * pk)
+{
+    fprintf(stderr, "is_pc_tainted()\n");
+
+    // Append reply to the buffer
+    msgpack_pack_array(pk, 2);
+
+    // error code
+    msgpack_pack_int64(pk, 0);
+
+    // taint
+    msgpack_pack_bin(pk, sizeof(target_ulong));
+    msgpack_pack_bin_body(pk, &shadow_pc, sizeof(target_ulong));
+
+    return 0;
+}
+
 
 // no params!
 struct resume_params
@@ -291,6 +308,11 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
             ret = 1;
         else
             ret = doGetTaintReg(pk, p);
+    }
+    else if (CMD_CMP(cmd, "is-pc-tainted"))
+    {
+
+        ret = doIsPCTainted(pk);
     }
     else if (CMD_CMP(cmd, "resume"))
     {

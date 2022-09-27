@@ -11,6 +11,7 @@
 #include "taint_requests.h"
 #include "logging.h"
 #include "xlen.h"
+#include "params.h"
 
 static msgpack_unpacker unp = {0};
 
@@ -127,15 +128,15 @@ void vcpu_insn_hypercall_textbased_cb(unsigned int vcpu_index, void *userdata)
     qemu_plugin_set_register_values(cs, 1, outregs, outval);
 }
 
-void vcpu_insn_hypercall_taintsingleword_cb(unsigned int vcpu_index, void *regid_ptr)
+void vcpu_insn_hypercall_taintdoubleword_cb(unsigned int vcpu_index, void *regid_ptr)
 {
     // the guest has requested the execution of a hypervisor function
     // using the signal instruction
     //     addi zero, zero, N for 0x480 <= N <= 0x49F.
-    // The guest requests for a physical memory word to be tainted. This physical memory word is pointed to by register x{N-0x480}
+    // The guest requests for a physical memory doubleword to be tainted. This physical memory word is pointed to by register x{N-0x480}
     // The regid variable is a pointer to an uint32_t that contains N-0x480
 
-    _DEBUG("Taint single word hypercall requested!");
+    _DEBUG("Taint doubleword hypercall requested!");
 
     uint32_t regid = *(uint32_t*)regid_ptr;
     uint64_t target_paddr;
@@ -147,17 +148,32 @@ void vcpu_insn_hypercall_taintsingleword_cb(unsigned int vcpu_index, void *regid
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_index);
         int regs[1] = {regid};
         target_ulong values[1];
-        qemu_plugin_get_register_values(cs, 4, regs, values);
+        qemu_plugin_get_register_values(cs, 1, regs, values);
         target_paddr = values[0];
     }
     _DEBUG("Hypercall will taint address: %llx", target_paddr);
 
     struct set_taint_range_params strp;
     strp.start  = target_paddr;
-    strp.length = 4;
+    strp.length = 8; // Taint a doubleword
     strp.t8     = 0xff;
 
     taint_paddr_range_explicit(strp);
 
-    _DEBUG("Taint single word hypercall requested!");
+    _DEBUG("Taint doubleword hypercall requested!");
+}
+
+void vcpu_insn_hypercall_taintfullreg_cb(unsigned int vcpu_index, void *regid_ptr)
+{
+    // the guest has requested the execution of a hypervisor function
+    // using the signal instruction
+    //     addi zero, zero, N for 0x4A0 <= N <= 0x4BF.
+    // The guest requests for a register to be fully tainted. This register is x{N-0x4A0}
+
+    _DEBUG("Taint a full register requested!");
+
+    uint32_t regid = *(uint32_t*)regid_ptr;
+    shadow_regs[regid] = -1ULL;
+
+    _DEBUG("Taint a full register requested!");
 }
