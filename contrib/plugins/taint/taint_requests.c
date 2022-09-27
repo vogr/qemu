@@ -27,7 +27,7 @@ static int parseSetTaintPaddrRangeCmd(msgpack_object_array cmd_arr, struct set_t
 {
     if(cmd_arr.size != 4)
         return 1;
-    
+
     msgpack_object p1 = cmd_arr.ptr[1];
     if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
         return 1;
@@ -89,7 +89,7 @@ static int parseGetTaintPaddrRangeCmd(msgpack_object_array cmd_arr, struct get_t
 {
     if(cmd_arr.size != 3)
         return 1;
-    
+
     msgpack_object p1 = cmd_arr.ptr[1];
     if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
         return 1;
@@ -135,7 +135,7 @@ static int parseSetTaintRegCmd(msgpack_object_array cmd_arr, struct set_taint_re
 {
     if(cmd_arr.size != 3)
         return 1;
-    
+
     msgpack_object p1 = cmd_arr.ptr[1];
     if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
         return 1;
@@ -174,7 +174,7 @@ static int parseGetTaintRegCmd(msgpack_object_array cmd_arr, struct get_taint_re
 {
     if(cmd_arr.size != 2)
         return 1;
-    
+
     msgpack_object p1 = cmd_arr.ptr[1];
     if(p1.type != MSGPACK_OBJECT_POSITIVE_INTEGER)
         return 1;
@@ -256,7 +256,7 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
             cmd = param1.via.str;
         }
     }
-    
+
     // Now dispatch
     int ret;
     if (CMD_CMP(cmd, "set-taint-range"))
@@ -296,7 +296,7 @@ static int taintmon_dispatcher(msgpack_object_array cmd_arr, msgpack_packer * pk
     {
         // notify main thread that resumption can happen
         // this command should follow a "notify" sent by the main
-        // thread to the controller upon 
+        // thread to the controller upon
         struct resume_params p = {0};
         if (parseResumeCmd(cmd_arr, &p))
             ret = 1;
@@ -343,7 +343,7 @@ static int taintmon_req_handler(msgpack_object obj, msgpack_packer * pk)
     /*
      * The serialized object can either be a command (=a list), or a list
      * of commands (list of lists)
-     * 
+     *
      * Will pack the reply in the packer (by appending, will not empty the
      * packer if it already contains msgpack objects!)
      */
@@ -402,15 +402,15 @@ int taint_cmd_process_cmd_block(msgpack_unpacker * unp, msgpack_packer * pk)
      * not been fully received yet. The available data will be
      * passed to msgpack's stream unpacker, and all the next formed
      * commands will be parsed.
-     * 
+     *
      * On return: returns -1 on error, 0 if no command is available in
      * the block, and 1 if a command has been parsed and executed. In the
      * last case, the function should be re-executed as more commands
      * may be available.
      */
-    
-    
-    // unpacked can be reused from one parse to the next: 
+
+
+    // unpacked can be reused from one parse to the next:
     // msgpack_unpacker_next does the destruction
     // so make it a static var
     static msgpack_unpacked und = {0};
