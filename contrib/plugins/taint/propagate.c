@@ -2078,14 +2078,173 @@ static void propagate_taint32__fp_op(unsigned int vcpu_idx, uint32_t instr)
     }
 }
 
-static void propagate_taint_JAL(unsigned int vcpu_idx, uint32_t instr)
+/**
+ * Branches
+ */
+
+enum BRANCH_TYPE {
+    BRANCH_FUNC7_BEQ  = 0b000,
+    BRANCH_FUNC7_BNE  = 0b001,
+    BRANCH_FUNC7_BLT  = 0b100,
+    BRANCH_FUNC7_BGE  = 0b101,
+    BRANCH_FUNC7_BLTU = 0b110,
+    BRANCH_FUNC7_BGEU = 0b111,
+};
+
+static void propagate_taint32__beq_bne(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2) {
+    // Check whether all bits at non-tainted indices are equal. If not, then taints will not be able to make a change in the output.
+    target_ulong non_tainted_bits_1 = v1 & ~(t1 | t2);
+    target_ulong non_tainted_bits_2 = v2 & ~(t1 | t2);
+
+    if (non_tainted_bits_1 != non_tainted_bits_2)
+        return;
+
+    // If there is at least one tainted bit, then the output will be tainted.
+    if (t1 | t2)
+        taint_pc(vcpu_idx);
+}
+
+static void propagate_taint32__blt(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2) {
+    // If no input is tainted, we know already that the PC will also not be tainted. This conditional is for performance only and can be omitted.
+    if (!(t1 | t2))
+        return;
+
+    // Maximize left and right and see whether there are changes possible.
+    // Since the operation is signed, minimizing implies setting the MSB if possible.
+    target_ulong min1_lsbs = (v1 & ~t1) & MASK(RISCV_XLEN-1);
+    target_ulong min1_msb  = (v1 | t1)  & (1ULL << (RISCV_XLEN-1));
+    target_ulong min2_lsbs = (v2 & ~t2) & MASK(RISCV_XLEN-1);
+    target_ulong min2_msb  = (v2 | t2)  & (1ULL << (RISCV_XLEN-1));
+    target_ulong min1 = min1_msb | min1_lsbs;
+    target_ulong min2 = min2_msb | min2_lsbs;
+
+    target_ulong max1_lsbs = (v1 | t1)  & MASK(RISCV_XLEN-1);
+    target_ulong max1_msb  = (v1 & ~t1) & (1ULL << (RISCV_XLEN-1));
+    target_ulong max2_lsbs = (v2 | t2)  & MASK(RISCV_XLEN-1);
+    target_ulong max2_msb  = (v2 & ~t2) & (1ULL << (RISCV_XLEN-1));
+    target_ulong max1 = max1_msb | max1_lsbs;
+    target_ulong max2 = max2_msb | max2_lsbs;
+
+    // This is a signed comparison.
+    target_long max_output = ((target_long) min1) < ((target_long) max2);
+    target_long min_output = ((target_long) max1) < ((target_long) min2);
+
+    if (min_output != max_output)
+        taint_pc(vcpu_idx);
+}
+
+static void propagate_taint32__bge(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2) {
+    // If no input is tainted, we know already that the PC will also not be tainted. This conditional is for performance only and can be omitted.
+    if (!(t1 | t2))
+        return;
+
+    // Maximize left and right and see whether there are changes possible.
+    // Since the operation is signed, minimizing implies setting the MSB if possible.
+    target_ulong min1_lsbs = (v1 & ~t1) & MASK(RISCV_XLEN-1);
+    target_ulong min1_msb  = (v1 | t1)  & (1ULL << (RISCV_XLEN-1));
+    target_ulong min2_lsbs = (v2 & ~t2) & MASK(RISCV_XLEN-1);
+    target_ulong min2_msb  = (v2 | t2)  & (1ULL << (RISCV_XLEN-1));
+    target_ulong min1 = min1_msb | min1_lsbs;
+    target_ulong min2 = min2_msb | min2_lsbs;
+
+    target_ulong max1_lsbs = (v1 | t1)  & MASK(RISCV_XLEN-1);
+    target_ulong max1_msb  = (v1 & ~t1) & (1ULL << (RISCV_XLEN-1));
+    target_ulong max2_lsbs = (v2 | t2)  & MASK(RISCV_XLEN-1);
+    target_ulong max2_msb  = (v2 & ~t2) & (1ULL << (RISCV_XLEN-1));
+    target_ulong max1 = max1_msb | max1_lsbs;
+    target_ulong max2 = max2_msb | max2_lsbs;
+
+    // This is a signed comparison.
+    target_long max_output = ((target_long) min1) >= ((target_long) max2);
+    target_long min_output = ((target_long) max1) >= ((target_long) min2);
+
+    if (min_output != max_output)
+        taint_pc(vcpu_idx);
+}
+
+static void propagate_taint32__bltu(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2) {
+    // If no input is tainted, we know already that the PC will also not be tainted. This conditional is for performance only and can be omitted.
+    if (!(t1 | t2))
+        return;
+
+    // Maximize left and right and see whether there are changes possible.
+    // Since the operation is unsigned, minimizing implies simply unsetting the tainted bits.
+    target_ulong min1 = (v1 & ~t1);
+    target_ulong min2 = (v2 & ~t2);
+    target_ulong max1 = (v1 |  t1);
+    target_ulong max2 = (v2 |  t2);
+
+    // This is a signed comparison.
+    target_ulong max_output = min1 < max2;
+    target_ulong min_output = max1 < min2;
+
+    if (min_output != max_output)
+        taint_pc(vcpu_idx);
+}
+
+static void propagate_taint32__bgeu(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2) {
+    // If no input is tainted, we know already that the PC will also not be tainted. This conditional is for performance only and can be omitted.
+    if (!(t1 | t2))
+        return;
+
+    // Maximize left and right and see whether there are changes possible.
+    // Since the operation is unsigned, minimizing implies simply unsetting the tainted bits.
+    target_ulong min1 = (v1 & ~t1);
+    target_ulong min2 = (v2 & ~t2);
+    target_ulong max1 = (v1 |  t1);
+    target_ulong max2 = (v2 |  t2);
+
+    // This is a signed comparison.
+    target_ulong max_output = min1 < max2;
+    target_ulong min_output = max1 < min2;
+
+    if (min_output != max_output)
+        taint_pc(vcpu_idx);
+}
+
+
+static void propagate_taint32__branch(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
+
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong v2 = get_one_reg_value(vcpu_idx, rs2);
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    switch (f3) {
+        case BRANCH_FUNC7_BEQ:
+        case BRANCH_FUNC7_BNE:
+            propagate_taint32__beq_bne(vcpu_idx, v1, v2, t1, t2);
+            break;
+        case BRANCH_FUNC7_BLT:
+            propagate_taint32__blt(vcpu_idx, v1, v2, t1, t2);
+            break;
+        case BRANCH_FUNC7_BGE:
+            propagate_taint32__bge(vcpu_idx, v1, v2, t1, t2);
+            break;
+        case BRANCH_FUNC7_BLTU:
+            propagate_taint32__bltu(vcpu_idx, v1, v2, t1, t2);
+            break;
+        case BRANCH_FUNC7_BGEU:
+            propagate_taint32__bgeu(vcpu_idx, v1, v2, t1, t2);
+            break;
+        default:
+            fprintf(stderr, "Unknown opcode for branch instr: 0x%" PRIx32 "\n", instr);
+            break;
+    }
+}
+
+static void propagate_taint32_JAL(unsigned int vcpu_idx, uint32_t instr)
 {
     // unconditionnal jump with an immediate.
     // As we ignore the taint of the immediate for now, this has no architectural IFT impact.
 }
 
 
-static void propagate_taint_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
+static void propagate_taint32_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
 {
     // Two actions:
     // - Clears the taint in rd
@@ -2172,17 +2331,17 @@ static void propagate_taint32(unsigned int vcpu_idx, uint32_t instr)
         break;
 
     case INSTR32_OPCODE_HI_BRANCH:
-        // no control flow taint
+        propagate_taint32__branch(vcpu_idx, instr);
         break;
 
     case INSTR32_OPCODE_HI_JALR:
         uint8_t rd = INSTR32_RD_GET(instr);
         uint8_t rs1 = INSTR32_RS1_GET(instr);
-        propagate_taint_JALR(vcpu_idx, rd, rs1);
+        propagate_taint32_JALR(vcpu_idx, rd, rs1);
         break;
 
     case INSTR32_OPCODE_HI_JAL:
-        propagate_taint_JAL(vcpu_idx, instr);
+        propagate_taint32_JAL(vcpu_idx, instr);
         break;
 
     case INSTR32_OPCODE_HI_SYSTEM:
@@ -2394,7 +2553,7 @@ static void propagate_taint_CLUI_CADDI16SP(unsigned int vcpu_idx, uint16_t instr
 
 static void propagate_taint_CJ(unsigned int vcpu_idx, uint16_t instr)
 {
-    // C.J does not propagate any taint architecturally.
+    // C.J does not propagate any taint architecturally, assuming that the jump offset immediate is not tainted.
 }
 
 
