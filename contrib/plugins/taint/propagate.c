@@ -49,25 +49,21 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
     uint64_t paddr = 0;
     uint64_t ram_addr = 0;
 
-    if (t1)
-    {
+    if (t1) {
         // tainted ptr implies fully tainted value!
         tout = -1;
+        // tainted ptr also implies tainted PC.
+        taint_pc(vcpu_idx);
         _DEBUG("Propagate load[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIxXLEN "\n", vaddr, rd, tout);
     }
-    else
-    {
+    else {
         // else propagate the taint from the memory location.
 
-
-
-        // adress translation
-        // FIXME: does this work or shd we also add logic in mem callback?
+        // adress translation FIXME: does this work or shd we also add logic in mem callback?
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
         paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
 
-        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
-        {
+        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr)) {
             //Non-ram location
             //FIXME: how shd we handle this?
             tout = 0;
@@ -75,13 +71,9 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
         }
         else
         {
-
-
-
             // NOTE: the loaded value is sign (/value for the U variants) extended
             // to XLEN bits before being stored in the register.
             // This means we will update all the bits in the shadow register.
-
 
             // Note that casting from short int to large uint does the sign expansion,
             // casting from short uint to large uint does not.
@@ -201,8 +193,7 @@ static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, targ
     uint64_t paddr = 0;
     uint64_t ram_addr = 0;
 
-    if (t1)
-    {
+    if (t1) {
         // tainted ptr implies fully tainted value!
         tout = -1;
         // tainted ptr also implies tainted PC.
@@ -210,39 +201,29 @@ static void propagate_taint_load_fp_impl(unsigned int vcpu_idx, uint8_t rd, targ
 
         _DEBUG("Propagate load[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIxXLEN "\n", vaddr, rd, tout);
     }
-    else
-    {
+    else {
         // else propagate the taint from the memory location.
-
-
 
         // adress translation
         // FIXME: does this work or shd we also add logic in mem callback?
         qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
         paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
 
-        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
-        {
+        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr)) {
             //Non-ram location
             //FIXME: how shd we handle this?
             tout = 0;
             _DEBUG("Propagate floating-point load[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
         }
-        else
-        {
-
-
-
+        else {
             // NOTE: the loaded value is sign (/value for the U variants) extended
             // to XLEN bits before being stored in the register.
             // This means we will update all the bits in the shadow register.
 
-
             // Note that casting from short int to large uint does the sign expansion,
             // casting from short uint to large uint does not.
 
-            switch (lt)
-            {
+            switch (lt) {
                 case FP_LOAD_FLW:
                 {
                     int32_t t = 0;
@@ -308,37 +289,25 @@ enum STORE_TYPE {
 
 static void propagate_taint_store_impl(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, uint64_t offt, target_ulong t1, target_ulong t2, enum STORE_TYPE st)
 {
-
-    // Tainted ptr store: need to taint every possible dest
-    // ie all combinations of tainted bits (in vaddr, not in t1!)
-    // FIXME: support tainted dest.
-    if (t1)
-    {
-        fprintf(stderr, "ERROR: no support for tainted store destinations yet.\n");
+    // If the destination pointer is tainted, then we consider the PC to be tainted.
+    if (t1) {
+        taint_pc(vcpu_idx);
+        return;
     }
 
-
-    //FIXME: need to have tainted pointer support
-    //FIXME: use addi logic to propagate taint!
     uint64_t vaddr = v1 + offt;
 
     // adress translation
-    // FIXME: does this work or shd we also add logic in mem callback?
     qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
     uint64_t paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
     uint64_t ram_addr = 0;
-    if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr))
-    {
-        // non-ram location
-        _DEBUG("Propagate store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: to [non-RAM] ; t= 0x%" PRIxXLEN " not written\n", vaddr, paddr, t2);
+    if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr)) {
+        // non-ram location, we assume that the non-ram is not tainted.
     }
-    else
-    {
+    else {
         // truncate the taint when writing
 
-
-        switch (st)
-        {
+        switch (st) {
             case STORE_SB:
             {
                 uint8_t tout = t2;
@@ -372,7 +341,6 @@ static void propagate_taint_store_impl(unsigned int vcpu_idx, target_ulong v1, t
             }
         }
 
-
         _DEBUG("Propagate store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t[0x%" PRIx64 "] = 0x%" PRIxXLEN "\n", vaddr, paddr, ram_addr, t2);
     }
 }
@@ -386,7 +354,6 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
 
     // imm0_11 is split in S form, the macro concatenates the two parts
     uint16_t imm0_11 = INSTR32_S_IMM_0_11_GET(instr);
-
 
     target_ulong t1 = shadow_regs[rs1];
     target_ulong t2 = shadow_regs[rs2];
@@ -425,51 +392,43 @@ static void propagate_taint_store_fp_impl(unsigned int vcpu_idx, uint8_t rd, tar
     uint64_t paddr = 0;
     uint64_t ram_addr = 0;
 
-    if (t1)
-    {
-        // tainted ptr implies fully tainted value!
-        tout = -1;
-        // tainted ptr also implies tainted PC.
+    // If the destination pointer is tainted, then we consider the PC to be tainted.
+    if (t1) {
         taint_pc(vcpu_idx);
-
-        _DEBUG("Propagate floating-point store[v=0x%" PRIx64 " TAINTED]: t%" PRIu8 " <- " PRIxXLEN "\n", vaddr, rd, tout);
+        return;
     }
-    else
-    {
-        // else propagate the taint from the memory location.
-        // adress translation
-        // FIXME: does this work or shd we also add logic in mem callback?
-        qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
-        paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
 
-        if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr)) {
-            tout = 0;
-            taint_pc(vcpu_idx);
-            _DEBUG("Propagate floating-point store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
-        }
-        else {
-            switch (lt) {
-                case FP_STORE_FSW: {
-                    uint32_t tout = t2;
-                    memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
-                    break;
-                }
-#ifdef TARGET_RISCVD
-                case FP_STORE_FSD: {
-                    uint64_t tout = t2;
-                    memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
-                    break;
-                }
-#endif
-                default:
-                    fprintf(stderr, "Error: unknown floating-point store type.\n");
-                    exit(1);
+    // else propagate the taint from the memory location.
+    // adress translation
+    // FIXME: does this work or shd we also add logic in mem callback?
+    qemu_cpu_state cs = qemu_plugin_get_cpu(vcpu_idx);
+    paddr = qemu_plugin_vaddr_to_paddr(cs, vaddr);
+
+    if (qemu_plugin_paddr_to_ram_addr(paddr, &ram_addr)) {
+        tout = 0;
+        taint_pc(vcpu_idx);
+        _DEBUG("Propagate floating-point store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: [non-RAM] location, t%" PRIu8 " <- 0x%" PRIxXLEN "\n", vaddr, paddr, rd, tout);
+    }
+    else {
+        switch (lt) {
+            case FP_STORE_FSW: {
+                uint32_t tout = t2;
+                memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
+                break;
             }
-            _DEBUG("Propagate floating-point store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=0x%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
+#ifdef TARGET_RISCVD
+            case FP_STORE_FSD: {
+                uint64_t tout = t2;
+                memcpy(shadow_mem + ram_addr, &tout, sizeof(tout));
+                break;
+            }
+#endif
+            default:
+                fprintf(stderr, "Error: unknown floating-point store type.\n");
+                exit(1);
         }
+        _DEBUG("Propagate floating-point store[v=0x%" PRIx64 ", p=0x%" PRIx64 "]: t%" PRIu8 " <- t[0x%" PRIx64 "]=0x%" PRIxXLEN "\n", vaddr, paddr, rd, ram_addr, tout);
     }
-
-    shadow_fpregs[rd] = tout;
 }
 
 static void propagate_taint32__store_fp(unsigned int vcpu_idx, uint32_t instr)
@@ -526,7 +485,7 @@ static target_ulong propagate_taint_op__lazy(target_ulong t1, target_ulong t2)
     // if any bit tainted in any of the operands, the output is completely tainted
     bool is_out_tainted = (t1 || t2);
 
-    target_ulong tout = is_out_tainted ? -1 : 0;
+    target_ulong tout = is_out_tainted ? -1ULL : 0;
 
     return tout;
 }
