@@ -249,81 +249,12 @@ static target_ulong propagate_taint_op__lazy(target_ulong t1, target_ulong t2)
 //   - better: carry-by-carry taint propagation
 
 
-static target_ulong propagate_taint__add(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
-{
-    /*
-      Taint using the properties of ADD identified in the CellIFT paper.
-    */
-
-    target_ulong v1_with_ones = v1 | t1;
-    target_ulong v2_with_ones = v2 | t2;
-
-    target_ulong v1_with_zeros = v1 & (~t1);
-    target_ulong v2_with_zeros = v2 & (~t2);
-
-    // Taint:
-    // 1. taint directly from input bit to the corresponding output bit
-    // 2. taint from carries
-
-    target_ulong sum_with_ones = v1_with_ones + v2_with_ones;
-    target_ulong sum_with_zeros = v1_with_zeros + v2_with_zeros;
-
-    target_ulong tout = t1 | t2 | (sum_with_ones ^ sum_with_zeros);
-
-    return tout;
-}
-
-
-static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint__add(vals.v1, vals.v2, t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate ADD(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
 
 
 
-static target_ulong propagate_taint__sub(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
-{
-    target_ulong v1_with_ones = v1 | t1;
-    target_ulong v2_with_ones = v2 | t2;
 
-    target_ulong v1_with_zeros = v1 & (~t1);
-    target_ulong v2_with_zeros = v2 & (~t2);
 
-    // Taint:
-    // 1. taint directly from input bit to the corresponding output bit
-    // 2. taint from carries
 
-    target_ulong diff_zero_ones = v1_with_zeros - v2_with_ones;
-    target_ulong diff_ones_zeros = v1_with_ones - v2_with_zeros;
-
-    target_ulong tout = t1 | t2 | (diff_zero_ones ^ diff_ones_zeros);
-    return tout;
-}
-
-static void propagate_taint_SUB(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint__sub(vals.v1, vals.v2, t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SUB(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
 
 // AND and OR
 
@@ -396,37 +327,6 @@ static void propagate_taint_OR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, u
 
 
 
-// XOR
-
-static void propagate_taint_XOR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    /*
-     * XOR: union of the taints.
-     *
-     * Exception: if rs1 is rs2, then the output is always 0.
-     */
-
-    target_ulong tout = 0;
-    target_ulong t1 = 0, t2 = 0;
-    if (rs1 == rs2)
-    {
-        tout = 0;
-    }
-    else
-    {
-        t1 = shadow_regs[rs1];
-        t2 = shadow_regs[rs2];
-
-        tout = t1 | t2;
-    }
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate XOR(X, X) -> r%" PRIu8 "\n", rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-
-
-}
 
 
 
@@ -446,147 +346,19 @@ static void propagate_taint_XOR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 *     RV64: the lower 6 bits
 */
 
-static target_ulong propagate_taint_sll_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
-{
-    /*
-     * t1 => left shift the tainted bits (by the X lsb of rs2)
-     * t2 => if rs1 != 0, everything is tainted
-     */
-
-    target_ulong mask = MASK(shamtsize);
-    unsigned int shamt = v2 & mask;
-    uint8_t t_shift = t2 & mask;
-
-    target_ulong tA = t1 << shamt;
-    target_ulong tB = (t_shift && (v1 != 0)) ? -1 : 0;
-
-    target_ulong tout = tA | tB;
-
-    return tout;
-}
-
-static void propagate_taint_SLL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    target_ulong tout = propagate_taint_sll_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SLL(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-
-}
 
 
 
-static void propagate_taint_SLLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
-{
-    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong t1 = shadow_regs[rs1];
-
-    // /!\ SHAMT_SIZE depends on RV32 or RV64 !
-    target_ulong tout = propagate_taint_sll_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SLLI(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
-
-
-}
-
-
-static target_ulong propagate_taint_srl_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
-{
-
-
-    /*
-     * t1 => right shift the tainted bits (by the X lsb of rs2)
-     * t2 => if rs1 != 0, everything is tainted
-     */
-
-
-    target_ulong mask = MASK(shamtsize);
-    unsigned int shamt = v2 & mask;
-    uint8_t t_shift = t2 & mask;
-
-    target_ulong tA = t1 >> shamt;
-    target_ulong tB = (t_shift && (v1 != 0)) ? -1 : 0;
-
-    target_ulong tout = tA | tB;
-
-    return tout;
-}
 
 
 
-static void propagate_taint_SRL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    /*
-     * Shift right
-     * rd <- (uint)rs1 >> rs2
-     *
-     * SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the value in
-     * register rs1 by the shift amount held in the lower 5 bits of register rs2.
-     */
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    target_ulong tout = propagate_taint_srl_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SRL(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-
-}
 
 
-static void propagate_taint_SRLI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
-{
-    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong t1 = shadow_regs[rs1];
-
-    target_ulong tout = propagate_taint_srl_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SRLI(0x%" PRIxXLEN ", imm=0x%" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
-
-}
 
 
-static target_ulong propagate_taint_sra_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
-{
 
-    target_ulong mask = MASK(shamtsize);
 
-    /*
-     * t1 => right shift the tainted bits (by the X lsb of rs2)
-     *       since the MSB is replicated by the shift, we also want to
-     *       propagate the taint of the MSB during the shift => arithmetic shift
-     * t2 => if rs1 != 0 AND rs1 != 0x11..1, everything is tainted
-     */
 
-    uint8_t shift = v2 & mask;
-    uint8_t t_shift = t2 & mask;
-
-    target_ulong tA = ((target_long)t1) >> shift;
-    target_ulong tB = (t_shift && (v1 != 0) && (v1 != -1)) ? -1 : 0;
-
-    target_ulong tout = tA | tB;
-
-    return tout;
-}
 
 
 
@@ -615,20 +387,6 @@ static void propagate_taint_SRA(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
 }
 
-static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
-{
-    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong t1 = shadow_regs[rs1];
-
-    target_ulong tout = propagate_taint_sra_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SRAI(0x%" PRIxXLEN ", imm=%0x" PRIx16 ") -> r%" PRIu8 "\n", v1, imm, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
-
-
-}
 
 
 
@@ -665,51 +423,10 @@ static void propagate_taint_SRAI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
  */
 
 // logic used for SLTU and SLTIU
-static target_ulong taint_result__sltu(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
-{
-    target_ulong v1_with_ones =  v1 | t1;
-    target_ulong v2_with_ones =  v2 | t2;
-
-    target_ulong v1_with_zeros =  v1 & (~t1);
-    target_ulong v2_with_zeros =  v2 & (~t2);
-
-    target_ulong stable_compare1 = v1_with_ones < v2_with_zeros;
-    target_ulong stable_compare2 = v1_with_zeros >= v2_with_ones;
-
-    target_ulong stable_compare = stable_compare1 | stable_compare2;
-
-    return (! stable_compare);
-}
-
-static void propagate_taint_SLTU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    target_ulong tout = taint_result__sltu(vals.v1, vals.v2, t1, t2);
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SLTU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-
-}
 
 
 
-static void propagate_taint_SLT(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
 
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-    target_ulong tout = taint_result__slt(vals.v1, vals.v2, t1, t2);
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate SLT(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-
-}
 
 
 

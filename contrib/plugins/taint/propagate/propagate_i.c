@@ -187,6 +187,10 @@ static void propagate_taint32__branch(unsigned int vcpu_idx, uint32_t instr)
     uint8_t rs1 = INSTR32_RS1_GET(instr);
     uint8_t rs2 = INSTR32_RS2_GET(instr);
 
+    // If rs1 == rs2, the result never depends on the stored values, therefore the PC will not be tainted by this operation.
+    if (rs1 == rs2)
+        return;
+
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
     target_ulong v2 = get_one_reg_value(vcpu_idx, rs2);
     target_ulong t1 = shadow_regs[rs1];
@@ -230,7 +234,7 @@ enum LOAD_TYPE {
     LOAD_LD, LOAD_LWU,
 };
 
-static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong v1, uint64_t offt, target_ulong t1, enum LOAD_TYPE lt)
+static void propagate_taint32_load_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong v1, uint64_t offt, target_ulong t1, enum LOAD_TYPE lt)
 {
     uint64_t vaddr = v1 + offt;
 
@@ -332,7 +336,7 @@ static void propagate_taint_load_impl(unsigned int vcpu_idx, uint8_t rd, target_
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
+static void propagate_taint32_load(unsigned int vcpu_idx, uint32_t instr)
 {
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
 
@@ -361,7 +365,7 @@ static void propagate_taint32__load(unsigned int vcpu_idx, uint32_t instr)
     enum LOAD_TYPE lt = to_load_type[f3];
 
     // FIXME Propoagate taint to the PC if applicable
-    propagate_taint_load_impl(vcpu_idx, rd, v1, imm, t1, lt);
+    propagate_taint32_load_impl(vcpu_idx, rd, v1, imm, t1, lt);
 }
 
 /***
@@ -372,7 +376,7 @@ enum STORE_TYPE {
     STORE_SD,
 };
 
-static void propagate_taint_store_impl(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, uint64_t offt, target_ulong t1, target_ulong t2, enum STORE_TYPE st)
+static void propagate_taint32_store_impl(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, uint64_t offt, target_ulong t1, target_ulong t2, enum STORE_TYPE st)
 {
     // If the destination pointer is tainted, then we consider the PC to be tainted.
     if (t1) {
@@ -428,7 +432,7 @@ static void propagate_taint_store_impl(unsigned int vcpu_idx, target_ulong v1, t
     }
 }
 
-static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
+static void propagate_taint32_store(unsigned int vcpu_idx, uint32_t instr)
 {
     uint8_t f3 = INSTR32_GET_FUNCT3(instr);
 
@@ -457,10 +461,10 @@ static void propagate_taint32__store(unsigned int vcpu_idx, uint32_t instr)
     };
     enum STORE_TYPE st = to_store_type[f3];
 
-    propagate_taint_store_impl(vcpu_idx, vals.v1, vals.v2, imm, t1, t2, st);
+    propagate_taint32_store_impl(vcpu_idx, vals.v1, vals.v2, imm, t1, t2, st);
 }
 
-static void propagate_taint_addi(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_addi(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // Acceptable precision is important bc "mov rd,rs" is just an alias for "addi rd,rs,0"
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
@@ -469,12 +473,12 @@ static void propagate_taint_addi(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     target_ulong t1 = shadow_regs[rs1];
 
-    target_ulong tout = propagate_taint__add(v1, imm, t1, 0);
+    target_ulong tout = propagate_taint32_add_impl(v1, imm, t1, 0);
 
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_slti(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_slti(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     target_ulong imm = SIGN_EXTEND(imm0_11, 11);
@@ -482,12 +486,12 @@ static void propagate_taint_slti(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     target_ulong t1 = shadow_regs[rs1];
 
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong tout = taint_result__slt(v1, imm, t1, 0);
+    target_ulong tout = taint_result_slt_impl(v1, imm, t1, 0);
 
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_sltiu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_sltiu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     target_ulong imm = SIGN_EXTEND(imm0_11, 11);
@@ -495,13 +499,13 @@ static void propagate_taint_sltiu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1
     target_ulong t1 = shadow_regs[rs1];
 
     target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
-    target_ulong tout = taint_result__sltu(v1, imm, t1, 0);
+    target_ulong tout = taint_result_sltu_impl(v1, imm, t1, 0);
 
     shadow_regs[rd] = tout;
 }
 
 // logic used for SLT and SLTI
-static target_ulong taint_result__slt(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+static target_ulong taint_result_slt_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
 {
     target_ulong v1_with_ones =  v1 | t1;
     target_ulong v2_with_ones =  v2 | t2;
@@ -527,19 +531,19 @@ static target_ulong taint_result__slt(target_ulong v1, target_ulong v2, target_u
     return (! stable_compare);
 }
 
-static void propagate_taint_xori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_xori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     target_ulong t1 = shadow_regs[rs1];
     shadow_regs[rd] = t1;
 }
 
-static void propagate_taint_xori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_xori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     target_ulong t1 = shadow_regs[rs1];
     shadow_regs[rd] = t1;
 }
 
-static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_ori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs and sign extended to XLEN bits.
     target_ulong imm = SIGN_EXTEND(imm0_11, 11);
@@ -551,7 +555,7 @@ static void propagate_taint_ORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+static void propagate_taint32_andi(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
 {
     // imm is 12 bits longs ans sign extended to XLEN bits.
     target_ulong imm = SIGN_EXTEND(imm0_11, 11);
@@ -561,4 +565,264 @@ static void propagate_taint_ANDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     target_ulong tout = t1 & imm;
     shadow_regs[rd] = tout;
+}
+
+// Utility function for SLL and SLLI and length-varying variants
+static target_ulong propagate_taint32_sll_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
+{
+    /*
+     * t1 => left shift the tainted bits (by the X lsb of rs2)
+     * t2 => if rs1 != 0, everything is tainted
+     */
+
+    target_ulong mask = MASK(shamtsize);
+    unsigned int shamt = v2 & mask;
+    uint8_t t_shift = t2 & mask;
+
+    target_ulong tA = t1 << shamt;
+    target_ulong tB = (t_shift && (v1 != 0)) ? -1ULL : 0;
+
+    target_ulong tout = tA | tB;
+
+    return tout;
+}
+
+static void propagate_taint32_slli(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    // SHAMT_SIZE depends on RV32 or RV64
+    target_ulong tout = propagate_taint32_sll_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
+
+    shadow_regs[rd] = tout;
+}
+
+// Utility function for SRL and SRLI and length-varying variants
+static target_ulong propagate_taint32_srl_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
+{
+    /*
+     * t1 => right shift the tainted bits (by the X lsb of rs2)
+     * t2 => if rs1 != 0, everything is tainted
+     */
+
+    target_ulong mask = MASK(shamtsize);
+    unsigned int shamt = v2 & mask;
+    uint8_t t_shift = t2 & mask;
+
+    target_ulong tA = t1 >> shamt;
+    target_ulong tB = (t_shift && (v1 != 0)) ? -1ULL : 0;
+
+    target_ulong tout = tA | tB;
+
+    return tout;
+}
+
+static void propagate_taint32_srli(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    target_ulong tout = propagate_taint32_srl_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
+
+    shadow_regs[rd] = tout;
+}
+
+// Utility function for SRA and SRAI and length-varying variants
+static target_ulong propagate_taint32_sra_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
+{
+    /*
+     * t1 => right shift the tainted bits (by the X lsb of rs2)
+     *       since the MSB is replicated by the shift, we also want to
+     *       propagate the taint of the MSB during the shift => arithmetic shift
+     * t2 => if rs1 != 0 AND rs1 != 0x11..1, everything is tainted
+     */
+
+    target_ulong mask = MASK(shamtsize);
+
+    uint8_t shift = v2 & mask;
+    uint8_t t_shift = t2 & mask;
+
+    target_ulong tA = ((target_long)t1) >> shift;
+    target_ulong tB = (t_shift && (v1 != 0) && (v1 != -1)) ? -1ULL : 0;
+
+    target_ulong tout = tA | tB;
+
+    return tout;
+}
+
+static void propagate_taint32_srai(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    target_ulong tout = propagate_taint32_sra_impl(v1, t1, imm, 0, SHIFTS_SHAMT_SIZE);
+
+    shadow_regs[rd] = tout;
+}
+
+// Utility function for ADD and ADDI and length-varying variants
+static target_ulong propagate_taint32_add_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+{
+    target_ulong v1_with_ones = v1 | t1;
+    target_ulong v2_with_ones = v2 | t2;
+
+    target_ulong v1_with_zeros = v1 & (~t1);
+    target_ulong v2_with_zeros = v2 & (~t2);
+
+    // Taint:
+    // 1. taint directly from input bit to the corresponding output bit
+    // 2. taint from carries
+
+    target_ulong sum_with_ones = v1_with_ones + v2_with_ones;
+    target_ulong sum_with_zeros = v1_with_zeros + v2_with_zeros;
+
+    target_ulong tout = t1 | t2 | (sum_with_ones ^ sum_with_zeros);
+
+    return tout;
+}
+
+static void propagate_taint32_add(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong tout = propagate_taint32_add_impl(vals.v1, vals.v2, t1, t2);
+
+    shadow_regs[rd] = tout;
+}
+
+// Utility function for SUB and SUBI and length-varying variants
+static target_ulong propagate_taint32_sub_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+{
+    target_ulong v1_with_ones = v1 | t1;
+    target_ulong v2_with_ones = v2 | t2;
+
+    target_ulong v1_with_zeros = v1 & (~t1);
+    target_ulong v2_with_zeros = v2 & (~t2);
+
+    // Taint:
+    // 1. taint directly from input bit to the corresponding output bit
+    // 2. taint from carries
+
+    target_ulong diff_zero_ones = v1_with_zeros - v2_with_ones;
+    target_ulong diff_ones_zeros = v1_with_ones - v2_with_zeros;
+
+    target_ulong tout = t1 | t2 | (diff_zero_ones ^ diff_ones_zeros);
+    return tout;
+}
+
+static void propagate_taint32_sub(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    // If rs1 == rs2, then no taint propagates and the outputis simply zero.
+    if (rs1 == rs2) {
+        shadow_regs[rd] = 0;
+        return;
+    }
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong tout = propagate_taint32_sub_impl(vals.v1, vals.v2, t1, t2);
+
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint32_sll(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    // SHAMT_SIZE depends on RV32 or RV64
+    target_ulong tout = propagate_taint32_sll_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
+
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint32_slt(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    if (rs1 == rs2)
+        return;
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+    target_ulong tout = taint_result_slt_impl(vals.v1, vals.v2, t1, t2);
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint_sltu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    if (rs1 == rs2)
+        return;
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+    target_ulong tout = taint_result_sltu_impl(vals.v1, vals.v2, t1, t2);
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint_xor(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    /*
+     * XOR: union of the taints.
+     * Exception: if rs1 is rs2, then the output is always 0.
+     */
+
+    if (rs1 == rs2) {
+        shadow_regs[rd] = 0;
+        return;
+    }
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+    target_ulong tout = t1 | t2;
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint_srl(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    /*
+     * Shift right
+     * rd <- (uint)rs1 >> rs2
+     *
+     * SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the value in
+     * register rs1 by the shift amount held in the lower 5 bits of register rs2.
+     */
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    target_ulong tout = propagate_taint_srl_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
+
+    shadow_regs[rd] = tout;
+}
+
+static target_ulong taint_result_sltu_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+{
+    // Logic is described in the CellIFT paper.
+
+    target_ulong v1_with_ones =  v1 | t1;
+    target_ulong v2_with_ones =  v2 | t2;
+
+    target_ulong v1_with_zeros =  v1 & (~t1);
+    target_ulong v2_with_zeros =  v2 & (~t2);
+
+    target_ulong stable_compare1 = v1_with_ones < v2_with_zeros;
+    target_ulong stable_compare2 = v1_with_zeros >= v2_with_ones;
+
+    target_ulong stable_compare = stable_compare1 | stable_compare2;
+
+    return (! stable_compare);
 }
