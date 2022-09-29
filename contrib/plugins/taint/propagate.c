@@ -534,7 +534,6 @@ static void propagate_taint_ADD(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
 
     _DEBUG("Propagate ADD(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-
 }
 
 static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
@@ -552,8 +551,6 @@ static void propagate_taint_ADDI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     shadow_regs[rd] = tout;
 
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
-
-
 }
 
 
@@ -749,8 +746,6 @@ static void propagate_taint_XORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
     _DEBUG("Propagate XORI(X, X) -> r%" PRIu8 "\n", rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rd, tout);
-
-
 }
 
 
@@ -771,13 +766,10 @@ static void propagate_taint_XORI(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
 
 static target_ulong propagate_taint_sll_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize)
 {
-
-
     /*
      * t1 => left shift the tainted bits (by the X lsb of rs2)
      * t2 => if rs1 != 0, everything is tainted
      */
-
 
     target_ulong mask = MASK(shamtsize);
     unsigned int shamt = v2 & mask;
@@ -1151,7 +1143,7 @@ static void propagate_taint32_LUI(unsigned int vcpu_idx, uint32_t instr)
  * M extension
  ***/
 
-static void propagate_taint_MUL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static void propagate_taint_MUL_DIV(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     target_ulong t1 = shadow_regs[rs1];
     target_ulong t2 = shadow_regs[rs2];
@@ -1163,111 +1155,6 @@ static void propagate_taint_MUL(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     shadow_regs[rd] = tout;
 
     _DEBUG("Propagate MUL(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_MULH(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate MULH(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_MULHSU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate MULHSU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_MULHU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate MULHU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_DIV(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate DIV(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_DIVU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate DIVU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_REM(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate REM(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
-    _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
-}
-
-static void propagate_taint_REMU(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
-{
-    target_ulong t1 = shadow_regs[rs1];
-    target_ulong t2 = shadow_regs[rs2];
-
-    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
-
-    target_ulong tout = propagate_taint_op__lazy(t1, t2);
-
-    shadow_regs[rd] = tout;
-
-    _DEBUG("Propagate REMU(r%d=0x%" PRIxXLEN ",r%d=0x%" PRIxXLEN ") -> r%" PRIu8 "\n", rs1, vals.v1, rs2, vals.v2, rd);
     _DEBUG("t%" PRIu8 " = 0x%" PRIxXLEN "  t%" PRIu8 " = 0x%" PRIxXLEN " -> t%" PRIu8 " = 0x%" PRIxXLEN "\n", rs1, t1, rs2, t2, rd, tout);
 }
 
@@ -1416,7 +1303,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_SLL)
             propagate_taint_SLL(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MULH)
-            propagate_taint_MULH(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLL_MULH: 0x%" PRIx32 "\n", instr);
         break;
@@ -1426,7 +1313,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_SLT)
             propagate_taint_SLT(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MULHSU)
-            propagate_taint_MULHSU(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLT_MULHSU: 0x%" PRIx32 "\n", instr);
         break;
@@ -1436,7 +1323,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_SLTU)
             propagate_taint_SLTU(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MULHU)
-            propagate_taint_MULHU(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLTU_MULHU: 0x%" PRIx32 "\n", instr);
         break;
@@ -1446,7 +1333,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_XOR)
             propagate_taint_XOR(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_DIV)
-            propagate_taint_DIV(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL_DIV(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=XOR_DIV: 0x%" PRIx32 "\n", instr);
         break;
@@ -1458,7 +1345,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         else if (f7 == INSTR32_F7_SRA)
             propagate_taint_SRA(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_DIVU)
-            propagate_taint_DIVU(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL_DIV(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRL_SRA_DIVU: 0x%" PRIx32 "\n", instr);
         break;
@@ -1468,7 +1355,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_OR)
             propagate_taint_OR(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_REM)
-            propagate_taint_REM(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL_DIV(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: 0x%" PRIx32 "\n", instr);
         break;
@@ -1478,7 +1365,7 @@ static void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_AND)
             propagate_taint_AND(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_REMU)
-            propagate_taint_REMU(vcpu_idx, rd, rs1, rs2);
+            propagate_taint_MUL_DIV(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: 0x%" PRIx32 "\n", instr);
         break;
@@ -1501,10 +1388,6 @@ struct taint_vals_w {
     target_ulong t2;
 };
 
-
-// FIXME: Refactor, all these are very generic, could probably
-// use a common implementation. In particular SRL/SLL/SRA (and imm variants)
-// are almost exactly the same!
 
 static struct taint_vals_w truncate_vals_taint(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
 {
