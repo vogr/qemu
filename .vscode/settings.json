@@ -6,6 +6,7 @@
         "stdint.h": "c",
         "propagate.h": "c",
         "propagate_f.h": "c",
-        "propagate_c.h": "c"
+        "propagate_c.h": "c",
+        "common_propagate.h": "c"
     }
 }

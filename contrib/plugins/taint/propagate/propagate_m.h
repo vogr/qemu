@@ -1,3 +1,5 @@
+#pragma once
+
 #include "common_propagate.h"
 
 #include <qemu-plugin.h>

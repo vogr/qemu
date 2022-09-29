@@ -2,6 +2,12 @@
 
 #include <stdint.h>
 
+#include "regs.h"
+#include "riscv.h"
+#include "params.h"
+#include "logging.h"
+
+
 /*
  * Propagation logic.
  * Implemented in C++, expose through a C API.

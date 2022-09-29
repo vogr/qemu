@@ -46,22 +46,39 @@ lib%.so: %.o
 TAINT_BUILD_DIR := $(CURDIR)/taint
 TAINT_OBJS := taint/hypercall.o taint/hypernotify.o taint/logging.o taint/monitor.o taint/monitor_lock.o taint/params.o taint/propagate.o taint/regs.o taint/taint.o taint/taint_requests.o
 
+TAINT_PROPAGATION_BUILD_DIR := $(CURDIR)/taint/propagate
+TAINT_PROPAGATION_OBJS := taint/propagate/propagate_c
+TAINT_PROPAGATION_OBJS += taint/propagate/propagate_f
+TAINT_PROPAGATION_OBJS += taint/propagate/propagate_i
+TAINT_PROPAGATION_OBJS += taint/propagate/propagate_m
+TAINT_PROPAGATION_OBJS += taint/propagate/propagate_zicsr
+TAINT_OBJS+=$(TAINT_PROPAGATION_OBJS)
+
+LDFLAGS_TAINT += -I$(SRC_PATH)/contrib/plugins/taint
+LDFLAGS_TAINT += -I$(SRC_PATH)/contrib/plugins/taint/propagate
+
 RISCV_XLEN?=64
 CFLAGS_TAINT := -DRISCV_XLEN=$(RISCV_XLEN)
 
 TARGET_RISCVD?=1
 CFLAGS_TAINT += -DTARGET_RISCVD=$(TARGET_RISCVD)
 
+CFLAGS_TAINT += -I$(SRC_PATH)/contrib/plugins/taint
+CFLAGS_TAINT += -I$(SRC_PATH)/contrib/plugins/taint/propagate
+
 LDLIBS_TAINT :=
 LDLIBS_TAINT += -lmsgpackc
 
 taint/%.o: taint/%.c
+	$(CC) $(CFLAGS) $(CFLAGS_TAINT) $(CFLAGS_RISCVD) -c -o $@ $<
+taint/propagate/%.o: taint/propagate/%.c
 	$(CC) $(CFLAGS) $(CFLAGS_TAINT) $(CFLAGS_RISCVD) -c -o $@ $<
 
 $(TAINT_BUILD_DIR):
 	mkdir $(TAINT_BUILD_DIR)
 
 $(TAINT_OBJS): | $(TAINT_BUILD_DIR)
+$(TAINT_PROPAGATION_OBJS): | $(TAINT_PROPAGATION_BUILD_DIR)
 
 libtaint.so: $(TAINT_OBJS)
 	$(CC) -shared -Wl,-soname,$@ $(LDFLAGS_TAINT) -o $@ $^ $(LDLIBS) $(LDLIBS_TAINT)

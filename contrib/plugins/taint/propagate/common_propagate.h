@@ -1,4 +1,8 @@
+#pragma once
+
 #include "propagate.h"
+
+#include <stdbool.h>
 
 #include "regs.h"
 #include "riscv.h"
