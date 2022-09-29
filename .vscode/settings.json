@@ -4,6 +4,8 @@
         "params.h": "c",
         "hypernotify.h": "c",
         "stdint.h": "c",
-        "propagate.h": "c"
+        "propagate.h": "c",
+        "propagate_f.h": "c",
+        "propagate_c.h": "c"
     }
 }

@@ -1,4 +1,8 @@
 #include "propagate.h"
+#include "propagate_i.h"
+
+// The same opcode is used in the M extension (ADD and MUL have the same opcode, for example)
+#include "propagate_m.h"
 
 #include <qemu-plugin.h>
 
@@ -26,8 +30,6 @@ static target_ulong taint_result_sltu_impl(target_ulong v1, target_ulong v2, tar
 // Prototypes for post-dispatch functions
 static void propagate_taint32_auipc(unsigned int vcpu_idx, uint8_t rd);
 static void propagate_taint32_lui(unsigned int vcpu_idx, uint8_t rd);
-static void propagate_taint32_jal(unsigned int vcpu_idx, uint8_t rd);
-static void propagate_taint32_jalr(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1);
 static void propagate_taint32__beq_bne(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
 static void propagate_taint32__blt(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
 static void propagate_taint32__bge(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
@@ -84,7 +86,7 @@ static void propagate_taint32_lui(unsigned int vcpu_idx, uint8_t rd)
     shadow_regs[rd] = 0;
 }
 
-static void propagate_taint32_jal(unsigned int vcpu_idx, uint8_t rd)
+void propagate_taint32_jal(unsigned int vcpu_idx, uint8_t rd)
 {
     // We assume that the instruction (and hence the immediate) is not tainted.
     if (get_pc_taint())
@@ -94,7 +96,7 @@ static void propagate_taint32_jal(unsigned int vcpu_idx, uint8_t rd)
 
 }
 
-static void propagate_taint32_jalr(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
+void propagate_taint32_jalr(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
 {
     // Two actions:
     // - Clears the taint in rd
@@ -281,13 +283,7 @@ static void propagate_taint32__branch(unsigned int vcpu_idx, uint32_t instr)
  * 2. Use my own API: full PTW so high overhead!
  ***/
 
-enum LOAD_TYPE {
-    LOAD_LB, LOAD_LH, LOAD_LW,
-    LOAD_LBU, LOAD_LHU,
-    LOAD_LD, LOAD_LWU,
-};
-
-static void propagate_taint32_load_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong v1, uint64_t offt, target_ulong t1, enum LOAD_TYPE lt)
+void propagate_taint32_load_impl(unsigned int vcpu_idx, uint8_t rd, target_ulong v1, uint64_t offt, target_ulong t1, enum LOAD_TYPE lt)
 {
     uint64_t vaddr = v1 + offt;
 
@@ -1322,7 +1318,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         else if (f7 == INSTR32_F7_SUB)
             propagate_taint32_sub(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MUL)
-            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=ADD_SUB_MUL: 0x%" PRIx32 "\n", instr);
         break;
@@ -1332,7 +1328,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_SLL)
             propagate_taint32_sll(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MULH)
-            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLL_MULH: 0x%" PRIx32 "\n", instr);
         break;
@@ -1342,7 +1338,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_SLT)
             propagate_taint32_slt(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MULHSU)
-            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLT_MULHSU: 0x%" PRIx32 "\n", instr);
         break;
@@ -1352,7 +1348,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_SLTU)
             propagate_taint32_sltu(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_MULHU)
-            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLTU_MULHU: 0x%" PRIx32 "\n", instr);
         break;
@@ -1362,7 +1358,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_XOR)
             propagate_taint32_xor(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_DIV)
-            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv_div(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=XOR_DIV: 0x%" PRIx32 "\n", instr);
         break;
@@ -1374,7 +1370,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         else if (f7 == INSTR32_F7_SRA)
             propagate_taint32_sra(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_DIVU)
-            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv_div(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRL_SRA_DIVU: 0x%" PRIx32 "\n", instr);
         break;
@@ -1384,7 +1380,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_OR)
             propagate_taint32_or(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_REM)
-            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv_div(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: 0x%" PRIx32 "\n", instr);
         break;
@@ -1394,7 +1390,7 @@ void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
         if (f7 == INSTR32_F7_AND)
             propagate_taint32_and(vcpu_idx, rd, rs1, rs2);
         else if (f7 == INSTR32_F7_REMU)
-            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+            propagate_taint32_muldiv_div(vcpu_idx, rd, rs1, rs2);
         else
             fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: 0x%" PRIx32 "\n", instr);
         break;

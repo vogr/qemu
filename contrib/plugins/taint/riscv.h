@@ -256,6 +256,18 @@ enum {
     INSTR32_F7_SRAW = 0b0100000,
 };
 
+// Zicsr
+
+enum {
+    INSTR32_F3_CSRRW  = 0b000,
+    INSTR32_F3_CSRRS  = 0b001,
+    INSTR32_F3_CSRRC  = 0b011,
+    INSTR32_F3_CSRRWI = 0b100,
+    INSTR32_F3_CSRRSI = 0b101,
+    INSTR32_F3_CSRRCI = 0b111,
+};
+
+
 /***
  * 16 bits long instructions (compressed)
  * 
