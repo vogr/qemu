@@ -758,7 +758,25 @@ static void propagate_taint32_slt(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_sltu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static target_ulong taint_result_sltu_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+{
+    // Logic is described in the CellIFT paper.
+
+    target_ulong v1_with_ones =  v1 | t1;
+    target_ulong v2_with_ones =  v2 | t2;
+
+    target_ulong v1_with_zeros =  v1 & (~t1);
+    target_ulong v2_with_zeros =  v2 & (~t2);
+
+    target_ulong stable_compare1 = v1_with_ones < v2_with_zeros;
+    target_ulong stable_compare2 = v1_with_zeros >= v2_with_ones;
+
+    target_ulong stable_compare = stable_compare1 | stable_compare2;
+
+    return (! stable_compare);
+}
+
+static void propagate_taint32_sltu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     if (rs1 == rs2)
         return;
@@ -771,7 +789,7 @@ static void propagate_taint_sltu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1,
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_xor(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static void propagate_taint32_xor(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * XOR: union of the taints.
@@ -789,7 +807,7 @@ static void propagate_taint_xor(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_srl(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static void propagate_taint32_srl(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /*
      * Shift right
@@ -804,25 +822,83 @@ static void propagate_taint_srl(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, 
     target_ulong t1 = shadow_regs[rs1];
     target_ulong t2 = shadow_regs[rs2];
 
-    target_ulong tout = propagate_taint_srl_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
+    target_ulong tout = propagate_taint32_srl_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
 
     shadow_regs[rd] = tout;
 }
 
-static target_ulong taint_result_sltu_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2)
+static void propagate_taint32_sra(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
-    // Logic is described in the CellIFT paper.
+    /*
+     * Arithmetic right shift
+     * rd <- (int)rs1 >> rs2
+     *
+     * SLL, SRL, and SRA perform logical left, logical right, and arithmetic right shifts on the value in
+     * register rs1 by the shift amount held in the lower 5 bits of register rs2.
+     */
 
-    target_ulong v1_with_ones =  v1 | t1;
-    target_ulong v2_with_ones =  v2 | t2;
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
 
-    target_ulong v1_with_zeros =  v1 & (~t1);
-    target_ulong v2_with_zeros =  v2 & (~t2);
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
 
-    target_ulong stable_compare1 = v1_with_ones < v2_with_zeros;
-    target_ulong stable_compare2 = v1_with_zeros >= v2_with_ones;
+    target_ulong tout = propagate_taint_sra_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
 
-    target_ulong stable_compare = stable_compare1 | stable_compare2;
+    shadow_regs[rd] = tout;
+}
 
-    return (! stable_compare);
+static void propagate_taint_or(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    /* Rule from DECAF (tcg_taint.c)
+      Bitwise OR rules:
+        Taint1 Value1 Op  Taint2 Value2  ResultingTaint
+        0      0      OR  1      X       1
+        1      X      OR  0      0       1
+        1      X      OR  1      X       1
+        ... otherwise, ResultingTaint = 0
+        OR: ((NOT T1) * (NOT V1) * T2) + (T1 * (NOT T2) * (NOT V2)) + (T1 * T2)
+      */
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    target_ulong tA = (~t1) & (~vals.v1) & t2;
+    target_ulong tB = t1 & (~t2) & (~vals.v2);
+    target_ulong tC = t1 & t2;
+    target_ulong tout = tA | tB | tC;
+
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint32_and(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    /* Rule from DECAF (tcg_taint.c)
+      Bitwise AND rules:
+        Taint1 Value1 Op  Taint2 Value2  ResultingTaint
+        0      1      AND 1      X       1
+        1      X      AND 0      1       1
+        1      X      AND 1      X       1
+        ... otherwise, ResultingTaint = 0
+        AND: ((NOT T1) * V1 * T2) + (T1 * (NOT T2) * V2) + (T1 * T2)
+      */
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    target_ulong tA = (~t1) & vals.v1 & t2;
+    target_ulong tB = t1 & (~t2) & vals.v2;
+    target_ulong tC = t1 & t2;
+    target_ulong tout = tA | tB | tC;
+
+    shadow_regs[rd] = tout;
+}
+
+static void propagate_taint32_fence(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
+{
+    // Future: Fence may taint the PC if rs1 is tainted, and may clear rd.
+    return;
 }

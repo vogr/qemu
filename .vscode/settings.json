@@ -3,6 +3,7 @@
         "*.inc": "c",
         "params.h": "c",
         "hypernotify.h": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "propagate.h": "c"
     }
 }
