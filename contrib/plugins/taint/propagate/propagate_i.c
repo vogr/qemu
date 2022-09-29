@@ -14,6 +14,59 @@
 #include "params.h"
 #include "logging.h"
 
+// Prototypes for utility functions
+static target_ulong taint_result_slt_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static target_ulong propagate_taint32_sll_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize);
+static target_ulong propagate_taint32_srl_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize);
+static target_ulong propagate_taint32_sra_impl(target_ulong v1, target_ulong t1, target_ulong v2, target_ulong t2, int shamtsize);
+static target_ulong propagate_taint32_add_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static target_ulong propagate_taint32_sub_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static target_ulong taint_result_sltu_impl(target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+
+// Prototypes for post-dispatch functions
+static void propagate_taint32_auipc(unsigned int vcpu_idx, uint8_t rd);
+static void propagate_taint32_lui(unsigned int vcpu_idx, uint8_t rd);
+static void propagate_taint32_jal(unsigned int vcpu_idx, uint8_t rd);
+static void propagate_taint32_jalr(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1);
+static void propagate_taint32__beq_bne(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static void propagate_taint32__blt(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static void propagate_taint32__bge(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static void propagate_taint32__bltu(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static void propagate_taint32__bgeu(unsigned int vcpu_idx, target_ulong v1, target_ulong v2, target_ulong t1, target_ulong t2);
+static void propagate_taint32__branch(unsigned int vcpu_idx, uint32_t instr);
+static void propagate_taint32_load(unsigned int vcpu_idx, uint32_t instr);
+static void propagate_taint32_store(unsigned int vcpu_idx, uint32_t instr);
+static void propagate_taint32_addi(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_slti(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_sltiu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_xori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_xori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_ori(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_andi(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_slli(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm);
+static void propagate_taint32_srli(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm);
+static void propagate_taint32_srai(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm);
+static void propagate_taint32_add(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_sub(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_sll(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_slt(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_sltu(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_xor(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_srl(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_sra(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_or(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_and(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_fence(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1);
+static void propagate_taint32_addiw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11);
+static void propagate_taint32_slliw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm);
+static void propagate_taint32_srliw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm);
+static void propagate_taint32_sraiw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm);
+static void propagate_taint32_addw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_subw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_sllw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_srlw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+static void propagate_taint32_sraw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2);
+
 static void propagate_taint32_auipc(unsigned int vcpu_idx, uint8_t rd)
 {
     // Do nothing much. We ignore register taints if the PC is tainted.
@@ -41,7 +94,7 @@ static void propagate_taint32_jal(unsigned int vcpu_idx, uint8_t rd)
 
 }
 
-static void propagate_taint32_JALR(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
+static void propagate_taint32_jalr(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1)
 {
     // Two actions:
     // - Clears the taint in rd
@@ -842,12 +895,12 @@ static void propagate_taint32_sra(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1
     target_ulong t1 = shadow_regs[rs1];
     target_ulong t2 = shadow_regs[rs2];
 
-    target_ulong tout = propagate_taint_sra_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
+    target_ulong tout = propagate_taint32_sra_impl(vals.v1, t1, vals.v2, t2, SHIFTS_SHAMT_SIZE);
 
     shadow_regs[rd] = tout;
 }
 
-static void propagate_taint_or(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+static void propagate_taint32_or(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
 {
     /* Rule from DECAF (tcg_taint.c)
       Bitwise OR rules:
@@ -901,4 +954,566 @@ static void propagate_taint32_fence(unsigned int vcpu_idx, uint8_t rd, uint8_t r
 {
     // Future: Fence may taint the PC if rs1 is tainted, and may clear rd.
     return;
+}
+
+/**
+  * 64-bit-only instructions
+*/
+
+static void propagate_taint32_addiw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint16_t imm0_11)
+{
+    // Acceptable precision is important bc "mov rd,rs" is just an alias for "addi rd,rs,0"
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong imm = SIGN_EXTEND(imm0_11, 11);
+
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    target_ulong tout_low = propagate_taint32_add_impl(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+
+}
+
+static void propagate_taint32_slliw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    // SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint32_sll_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+static void propagate_taint32_srliw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    // SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint32_srl_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+static void propagate_taint32_sraiw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint64_t imm)
+{
+    target_ulong v1 = get_one_reg_value(vcpu_idx, rs1);
+    target_ulong t1 = shadow_regs[rs1];
+
+    struct taint_vals_w in_w = truncate_vals_taint(v1, imm, t1, 0);
+
+    // SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint32_sra_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+static void propagate_taint32_addw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    target_ulong tout_low = propagate_taint32_add_impl(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+static void propagate_taint32_subw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    target_ulong tout_low = propagate_taint32_sub_impl(in_w.v1, in_w.v2, in_w.t1, in_w.t2);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+
+static void propagate_taint32_sllw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    // SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint32_sll_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+static void propagate_taint32_srlw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    // SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint32_srl_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+static void propagate_taint32_sraw(unsigned int vcpu_idx, uint8_t rd, uint8_t rs1, uint8_t rs2)
+{
+
+    struct src_regs_values vals = get_src_reg_values(vcpu_idx, rs1, rs2);
+
+    target_ulong t1 = shadow_regs[rs1];
+    target_ulong t2 = shadow_regs[rs2];
+
+    struct taint_vals_w in_w = truncate_vals_taint(vals.v1, vals.v2, t1, t2);
+
+    // SHAMT_SIZE is fixed as if RV32, i.e. to 5
+    target_ulong tout_low = propagate_taint32_sra_impl(in_w.v1, in_w.t1, in_w.v2, in_w.t2, 5);
+    target_ulong tout = SIGN_EXTEND(tout_low, 31);
+}
+
+/***
+ * Opcode dispatch (uncompressed instructions)
+ ***/
+
+static void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+
+    // imm and f7/shamt bits overlap, only one should be used!
+    uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
+
+    // /!\ shamt is read differently on RV32 and RV64!
+    // this determines how many bits of the imm are read for dispatch
+#ifdef TARGET_RISCV64
+    uint32_t f6 = INSTR32_GET_FUNCT7(instr) >> 1;
+#else
+    uint32_t f7 = INSTR32_GET_FUNCT7(instr);
+#endif
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+
+    if (rd == 0)
+    {
+        // x0 cannot be tainted
+        return;
+    }
+
+    switch(f3)
+    {
+        case INSTR32_F3_ADDI:
+        {
+            propagate_taint32_addi(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLTI:
+        {
+            propagate_taint32_slti(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLTIU:
+        {
+            propagate_taint32_sltiu(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_XORI:
+        {
+            propagate_taint32_xori(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_ORI:
+        {
+            propagate_taint32_ori(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_ANDI:
+        {
+            propagate_taint32_andi(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLLI__:
+        {
+#ifdef TARGET_RISCV64
+            bool is_slli = (f6 == INSTR32_F6_SLLI_RV64);
+#else
+            bool is_slli = (f7 == INSTR32_F7_SLLI_RV32);
+#endif
+            if (is_slli)
+            {
+                propagate_taint32_slli(vcpu_idx, rd, rs1, imm);
+            }
+            else
+            {
+                fprintf(stderr, "Malformed instruction, unknown f6/f7 for f3=SLLI: 0x%" PRIx32 "\n", instr);
+            }
+            break;
+        }
+        case INSTR32_F3_SRLI__SRAI:
+        {
+#ifdef TARGET_RISCV64
+            bool is_srli = (f6 == INSTR32_F6_SRLI_RV64);
+            bool is_srai = (f6 == INSTR32_F6_SRAI_RV64);
+#else
+            bool is_srli = (f7 == INSTR32_F7_SRLI_RV32);
+            bool is_srai = (f7 == INSTR32_F7_SRAI_RV32);
+#endif
+            if (is_srli)
+            {
+                propagate_taint32_srli(vcpu_idx, rd, rs1, imm);
+            }
+            else if (is_srai)
+            {
+                propagate_taint32_srai(vcpu_idx, rd, rs1, imm);
+            }
+            else
+            {
+                fprintf(stderr, "Malformed instruction, unknown f6/f7 for f3=SRLI_SRAI: 0x%" PRIx32 "\n", instr);
+            }
+
+            break;
+        }
+        default:
+        {
+            fprintf(stderr, "Unknown reg-imm op f3 for instr: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+    }
+}
+
+/**
+ * Dispatch
+ */
+
+/***
+ * Opcode dispatch (uncompressed instructions)
+ ***/
+
+void propagate_taint32__reg_imm_op(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+
+    // imm and f7/shamt bits overlap, only one should be used!
+    uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
+
+    // /!\ shamt is read differently on RV32 and RV64!
+    // this determines how many bits of the imm are read for dispatch
+#ifdef TARGET_RISCV64
+    uint32_t f6 = INSTR32_GET_FUNCT7(instr) >> 1;
+#else
+    uint32_t f7 = INSTR32_GET_FUNCT7(instr);
+#endif
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+
+    if (rd == 0) {
+        // x0 cannot be tainted, and no instruction of this block can articecturally taint the PC.
+        return;
+    }
+
+    switch(f3)
+    {
+        case INSTR32_F3_ADDI:
+        {
+            propagate_taint32_addi(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLTI:
+        {
+            propagate_taint32_slti(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLTIU:
+        {
+            propagate_taint32_sltiu(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_XORI:
+        {
+            propagate_taint32_xori(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_ORI:
+        {
+            propagate_taint32_ori(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_ANDI:
+        {
+            propagate_taint32_andi(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLLI__:
+        {
+#ifdef TARGET_RISCV64
+            bool is_slli = (f6 == INSTR32_F6_SLLI_RV64);
+#else
+            bool is_slli = (f7 == INSTR32_F7_SLLI_RV32);
+#endif
+            if (is_slli)
+            {
+                propagate_taint32_slli(vcpu_idx, rd, rs1, imm);
+            }
+            else
+            {
+                fprintf(stderr, "Malformed instruction, unknown f6/f7 for f3=SLLI: 0x%" PRIx32 "\n", instr);
+            }
+            break;
+        }
+        case INSTR32_F3_SRLI__SRAI:
+        {
+#ifdef TARGET_RISCV64
+            bool is_srli = (f6 == INSTR32_F6_SRLI_RV64);
+            bool is_srai = (f6 == INSTR32_F6_SRAI_RV64);
+#else
+            bool is_srli = (f7 == INSTR32_F7_SRLI_RV32);
+            bool is_srai = (f7 == INSTR32_F7_SRAI_RV32);
+#endif
+            if (is_srli)
+                propagate_taint32_srli(vcpu_idx, rd, rs1, imm);
+            else if (is_srai)
+                propagate_taint32_srai(vcpu_idx, rd, rs1, imm);
+            else
+                fprintf(stderr, "Malformed instruction, unknown f6/f7 for f3=SRLI_SRAI: 0x%" PRIx32 "\n", instr);
+
+            break;
+        }
+        default:
+        {
+            fprintf(stderr, "Unknown reg-imm op f3 for instr: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+    }
+}
+
+void propagate_taint32__reg_reg_op(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+    uint8_t f7 = INSTR32_GET_FUNCT7(instr);
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
+
+    if (rd == 0)
+    {
+        // x0 cannot be tainted
+        return;
+    }
+
+    switch (f3)
+    {
+    case INSTR32_F3_ADD_SUB_MUL:
+    {
+        if (f7 == INSTR32_F7_ADD)
+            propagate_taint32_add(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_SUB)
+            propagate_taint32_sub(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MUL)
+            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=ADD_SUB_MUL: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_SLL_MULH:
+    {
+        if (f7 == INSTR32_F7_SLL)
+            propagate_taint32_sll(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MULH)
+            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLL_MULH: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_SLT_MULHSU:
+    {
+        if (f7 == INSTR32_F7_SLT)
+            propagate_taint32_slt(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MULHSU)
+            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLT_MULHSU: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_SLTU_MULHU:
+    {
+        if (f7 == INSTR32_F7_SLTU)
+            propagate_taint32_sltu(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_MULHU)
+            propagate_taint32_mul(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLTU_MULHU: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_XOR_DIV:
+    {
+        if (f7 == INSTR32_F7_XOR)
+            propagate_taint32_xor(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_DIV)
+            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=XOR_DIV: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_SRL_SRA_DIVU:
+    {
+        if (f7 == INSTR32_F7_SRL)
+            propagate_taint32_srl(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_SRA)
+            propagate_taint32_sra(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_DIVU)
+            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRL_SRA_DIVU: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_OR_REM:
+    {
+        if (f7 == INSTR32_F7_OR)
+            propagate_taint32_or(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_REM)
+            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    case INSTR32_F3_AND_REMU:
+    {
+        if (f7 == INSTR32_F7_AND)
+            propagate_taint32_and(vcpu_idx, rd, rs1, rs2);
+        else if (f7 == INSTR32_F7_REMU)
+            propagate_taint32_mul_div(vcpu_idx, rd, rs1, rs2);
+        else
+            fprintf(stderr, "Malformed instruction, unknown f7 for f3=OR_REM: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+    default:
+        fprintf(stderr, "Unknown reg-reg op f3 for instr: 0x%" PRIx32 "\n", instr);
+        break;
+    }
+}
+
+/***
+ * Opcode dispatch (uncompressed instructions, wordsize instructions -- RV64I only).
+ ***/
+
+void propagate_taint32__reg_imm_op32(unsigned int vcpu_idx, uint32_t instr)
+{
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+
+    // imm and f7/shamt bits overlap, only one should be used!
+    uint16_t imm = INSTR32_I_IMM_0_11_GET(instr);
+    uint32_t f7 = INSTR32_GET_FUNCT7(instr);
+    // note that shamt is NOT sign extended ()
+    uint8_t shamt = INSTR32_I_SHAMT_GET_FIVE(instr);
+
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+
+    if (rd == 0)
+    {
+        // x0 cannot be tainted
+        return;
+    }
+
+    switch(f3)
+    {
+        case INSTR32_F3_ADDIW:
+        {
+            // no f7 to check
+            propagate_taint32_addiw(vcpu_idx, rd, rs1, imm);
+            break;
+        }
+        case INSTR32_F3_SLLIW:
+        {
+            if (f7 == INSTR32_F7_SLLIW)
+                propagate_taint32_slliw(vcpu_idx, rd, rs1, shamt);
+            else
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLLIW: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+        case INSTR32_F3_SRLIW_SRAIW:
+        {
+            if (f7 == INSTR32_F7_SRLIW)
+                propagate_taint32_srliw(vcpu_idx, rd, rs1, shamt);
+            else if (f7 == INSTR32_F7_SRAIW)
+                propagate_taint32_sraiw(vcpu_idx, rd, rs1, shamt);
+            else
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRLIW_SRAIW: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+        default:
+        {
+            fprintf(stderr, "Unknown wordsize reg-imm op f3 for instr: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+    }
+}
+
+void propagate_taint32__reg_reg_op32(unsigned int vcpu_idx, uint32_t instr)
+{
+    // FIXME: Support for M extension (MULW, DIVW, ...)
+    uint8_t f3 = INSTR32_GET_FUNCT3(instr);
+    uint8_t f7 = INSTR32_GET_FUNCT7(instr);
+
+    uint8_t rd = INSTR32_RD_GET(instr);
+    uint8_t rs1 = INSTR32_RS1_GET(instr);
+    uint8_t rs2 = INSTR32_RS2_GET(instr);
+
+    if (rd == 0)
+    {
+        // x0 cannot be tainted
+        return;
+    }
+
+    switch (f3)
+    {
+        case INSTR32_F3_ADDW_SUBW:
+        {
+            if (f7 == INSTR32_F7_ADDW)
+                propagate_taint32_addw(vcpu_idx, rd, rs1, rs2);
+            else if (f7 == INSTR32_F7_SUBW)
+                propagate_taint32_subw(vcpu_idx, rd, rs1, rs2);
+            else
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=ADDW_SUBW: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+        case INSTR32_F3_SLLW:
+        {
+            if (f7 == INSTR32_F7_SLLW)
+                propagate_taint32_sllw(vcpu_idx, rd, rs1, rs2);
+            else
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=SLLW: 0x%" PRIx32 "\n", instr);
+
+            break;
+        }
+        case INSTR32_F3_SRLW_SRAW:
+        {
+            if (f7 == INSTR32_F7_SRLW)
+                propagate_taint32_srlw(vcpu_idx, rd, rs1, rs2);
+            else if (f7 == INSTR32_F7_SRAW)
+                propagate_taint32_sraw(vcpu_idx, rd, rs1, rs2);
+            else
+                fprintf(stderr, "Malformed instruction, unknown f7 for f3=SRLW_SRAW: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+        default:
+        {
+            fprintf(stderr, "Unknown wordsize reg-reg op f3 for instr: 0x%" PRIx32 "\n", instr);
+            break;
+        }
+    }
 }
