@@ -1093,14 +1093,14 @@ static target_ulong taint_result__slt(target_ulong v1, target_ulong v2, target_u
     // max and min values
     // (max is all 1s, except for sign bit ; min is all 0s, except for sign bit)
     // and cast to int to get a signed comparison
-    target_long v1_max = (v1_with_zeros & (~MASK(63))) | (v1_with_ones & MASK(63));
-    target_long v2_max = (v2_with_zeros & (~MASK(63))) | (v2_with_ones & MASK(63));
+    target_long v1_max = (v1_with_zeros & (1ULL << (RISCV_XLEN-1))) | (v1_with_ones & MASK(RISCV_XLEN-1));
+    target_long v2_max = (v2_with_zeros & (1ULL << (RISCV_XLEN-1))) | (v2_with_ones & MASK(RISCV_XLEN-1));
 
-    target_long v1_min = (v1_with_ones & (~MASK(63))) | (v1_with_zeros & MASK(63));
-    target_long v2_min = (v2_with_ones & (~MASK(63))) | (v2_with_zeros & MASK(63));
+    target_long v1_min = (v1_with_ones & (1ULL << (RISCV_XLEN-1))) | (v1_with_zeros & MASK(RISCV_XLEN-1));
+    target_long v2_min = (v2_with_ones & (1ULL << (RISCV_XLEN-1))) | (v2_with_zeros & MASK(63));
 
     uint8_t stable_compare1 = v1_max < v2_min;
-    uint8_t stable_compare2 = v1_min >= v2_max;
+    uint8_t stable_compare2 = v1_min < v2_max;
 
     uint8_t stable_compare = stable_compare1 | stable_compare2;
 
